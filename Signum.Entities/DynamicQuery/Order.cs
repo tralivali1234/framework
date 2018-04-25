@@ -31,9 +31,7 @@ namespace Signum.Entities.DynamicQuery
         }
     }
 
-    /// <summary>
-    /// An OrderBy order type 
-    /// </summary>
+    [InTypeScript(true), DescriptionOptions(DescriptionOptions.Members | DescriptionOptions.Description)]
     public enum OrderType
     {
         Ascending,

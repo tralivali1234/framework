@@ -9,23 +9,13 @@ using Signum.Utilities.Reflection;
 using System.Linq.Expressions;
 using System.Globalization;
 using Signum.Utilities.ExpressionTrees;
+using System.Text.RegularExpressions;
 
 namespace Signum.Entities.DynamicQuery
 {
     public static class QueryUtils
     {
-        public static string GetQueryUniqueKey(object queryName)
-        {
-            if (queryName is Type)
-                queryName = EnumEntity.Extract((Type)queryName) ?? (Type)queryName;
-
-            return
-                queryName is Type ? ((Type)queryName).FullName :
-                queryName is Enum ? "{0}.{1}".FormatWith(queryName.GetType().Name, queryName.ToString()) :
-                queryName.ToString();
-        }
-
-        public static string GetCleanName(object queryName)
+        public static string GetKey(object queryName)
         {
             if (queryName is Type)
                 queryName = EnumEntity.Extract((Type)queryName) ?? (Type)queryName;
@@ -129,7 +119,8 @@ namespace Signum.Entities.DynamicQuery
                     FilterOperation.NotStartsWith,
                     FilterOperation.NotEndsWith,
                     FilterOperation.NotLike,
-                    FilterOperation.IsIn
+                    FilterOperation.IsIn,
+                    FilterOperation.IsNotIn
                 }
             },
             { 
@@ -141,7 +132,8 @@ namespace Signum.Entities.DynamicQuery
                     FilterOperation.GreaterThanOrEqual,
                     FilterOperation.LessThan,
                     FilterOperation.LessThanOrEqual,
-                    FilterOperation.IsIn
+                    FilterOperation.IsIn,
+                    FilterOperation.IsNotIn,
                 }
             },
             { 
@@ -153,7 +145,8 @@ namespace Signum.Entities.DynamicQuery
                     FilterOperation.GreaterThanOrEqual,
                     FilterOperation.LessThan,
                     FilterOperation.LessThanOrEqual,
-                    FilterOperation.IsIn
+                    FilterOperation.IsIn,
+                    FilterOperation.IsNotIn,
                 }
             },
             { 
@@ -165,15 +158,21 @@ namespace Signum.Entities.DynamicQuery
                     FilterOperation.GreaterThanOrEqual,
                     FilterOperation.LessThan,
                     FilterOperation.LessThanOrEqual,
-                    FilterOperation.IsIn
+                    FilterOperation.IsIn,
+                    FilterOperation.IsNotIn,
                 }
             },
             { 
                 FilterType.Enum, new List<FilterOperation>
                 {
                     FilterOperation.EqualTo,
-                    FilterOperation.DistinctTo, 
-                    FilterOperation.IsIn
+                    FilterOperation.DistinctTo,
+                    FilterOperation.IsIn,
+                    FilterOperation.IsNotIn,
+                    FilterOperation.GreaterThan,
+                    FilterOperation.GreaterThanOrEqual,
+                    FilterOperation.LessThan,
+                    FilterOperation.LessThanOrEqual,
                 }
             },
             { 
@@ -181,7 +180,8 @@ namespace Signum.Entities.DynamicQuery
                 {
                     FilterOperation.EqualTo,
                     FilterOperation.DistinctTo, 
-                    FilterOperation.IsIn
+                    FilterOperation.IsIn,
+                    FilterOperation.IsNotIn,
                 }
             },
             { 
@@ -189,7 +189,8 @@ namespace Signum.Entities.DynamicQuery
                 {
                     FilterOperation.EqualTo,
                     FilterOperation.DistinctTo,
-                    FilterOperation.IsIn
+                    FilterOperation.IsIn,
+                    FilterOperation.IsNotIn,
                 }
             },
             { 
@@ -256,6 +257,33 @@ namespace Signum.Entities.DynamicQuery
                     yield return new AggregateToken(AggregateFunction.Min, token);
                     yield return new AggregateToken(AggregateFunction.Max, token);
                 }
+
+                if(ft != null)
+                {
+                    yield return new AggregateToken(AggregateFunction.Count, token, FilterOperation.DistinctTo, null);
+                    yield return new AggregateToken(AggregateFunction.Count, token,  FilterOperation.EqualTo, null);
+                }
+
+                if (token.IsGroupable)
+                {
+                    yield return new AggregateToken(AggregateFunction.Count, token, distinct: true);
+
+                }
+
+                if (ft == FilterType.Enum)
+                {
+                    foreach (var v in Enum.GetValues(token.Type.UnNullify()))
+                    {
+                        yield return new AggregateToken(AggregateFunction.Count, token, FilterOperation.EqualTo, v);
+                        yield return new AggregateToken(AggregateFunction.Count, token, FilterOperation.DistinctTo, v);
+                    }
+                }
+
+                if (ft == FilterType.Boolean)
+                {
+                    yield return new AggregateToken(AggregateFunction.Count, token, FilterOperation.EqualTo, true);
+                    yield return new AggregateToken(AggregateFunction.Count, token, FilterOperation.EqualTo, false);
+                }
             }
         }
 
@@ -290,7 +318,7 @@ namespace Signum.Entities.DynamicQuery
 
                 dictonary.Add(entity.Key, entity);
 
-                foreach (var item in entity.SubTokensInternal(options).OrderBy(a => a.ToString()))
+                foreach (var item in entity.SubTokensInternal(options).OrderByDescending(a=>a.Priority).ThenBy(a => a.ToString()))
                 {
                     if (!dictonary.ContainsKey(item.Key))
                     {
@@ -315,23 +343,20 @@ namespace Signum.Entities.DynamicQuery
             if (string.IsNullOrEmpty(tokenString))
                 throw new ArgumentNullException("tokenString");
 
-            string[] parts = tokenString.Split('.');
+            //https://stackoverflow.com/questions/35418597/split-string-on-the-dot-characters-that-are-not-inside-of-brackets
+            string[] parts = Regex.Split(tokenString, @"\.(?!([^[]*\]|[^(]*\)))"); 
 
             string firstPart = parts.FirstEx();
 
             QueryToken result = SubToken(null, qd, options, firstPart);
 
             if (result == null)
-                throw new FormatException("Column {0} not found on query {1}".FormatWith(firstPart, QueryUtils.GetCleanName(qd.QueryName)));
+                throw new FormatException("Column {0} not found on query {1}".FormatWith(firstPart, QueryUtils.GetKey(qd.QueryName)));
 
             foreach (var part in parts.Skip(1))
             {
                 var newResult = SubToken(result, qd, options, part);
-
-                if (newResult == null)
-                    throw new FormatException("Token with key '{0}' not found on {1} of query {2}".FormatWith(part, result.FullKey(), QueryUtils.GetCleanName(qd.QueryName)));
-
-                result = newResult;
+                result = newResult ?? throw new FormatException("Token with key '{0}' not found on {1} of query {2}".FormatWith(part, result.FullKey(), QueryUtils.GetKey(qd.QueryName)));
             }
 
             return result;
@@ -366,16 +391,31 @@ namespace Signum.Entities.DynamicQuery
             return null; 
         }
 
+        public static Dictionary<Type, Func<Expression, Expression>> OrderAdapters = new Dictionary<Type, Func<Expression, Expression>>();
+
+        public static LambdaExpression CreateOrderLambda(QueryToken token, BuildExpressionContext ctx)
+        {
+            var body = token.BuildExpression(ctx);
+            var adapter = QueryUtils.OrderAdapters.TryGetC(token.Type);
+            if (adapter != null)
+                body = adapter(body);
+
+            return Expression.Lambda(body, ctx.Parameter);
+        }
+
         public static string CanOrder(QueryToken token)
         {
             if (token == null)
                 return "No column selected"; 
 
-            if (token.Type.IsEmbeddedEntity())
+            if (token.Type.IsEmbeddedEntity() && !OrderAdapters.ContainsKey(token.Type))
                 return "{0} can not be ordered".FormatWith(token.Type.NicePluralName());
 
+            if (QueryToken.IsCollection(token.Type))
+                return "Collections can not be ordered";
+
             if (token.HasAllOrAny())
-                return "Columns can not contain '{0}', '{1}', {2} or {3}".FormatWith(
+                return "'{0}', '{1}', '{2}' or '{3}' can not be ordered".FormatWith(
                     CollectionElementType.All.NiceToString(),
                     CollectionElementType.Any.NiceToString(),
                     CollectionElementType.NoOne.NiceToString(),
@@ -390,8 +430,7 @@ namespace Signum.Entities.DynamicQuery
         {
             if (expression.Type.IsLite())
             {
-                MethodCallExpression mce = expression as MethodCallExpression;
-                if (mce != null && mce.Method.IsInstantiationOf(miToLite))
+                if (expression is MethodCallExpression mce && mce.Method.IsInstantiationOf(miToLite))
                     return mce.Arguments[0];
 
                 if (!idAndToStr)
@@ -411,7 +450,7 @@ namespace Signum.Entities.DynamicQuery
             return nullify;
         }
 
-        internal static Type BuildLiteNulifyUnwrapPrimaryKey(this Type type, PropertyRoute[] routes)
+        internal static Type BuildLiteNullifyUnwrapPrimaryKey(this Type type, PropertyRoute[] routes)
         {
             var buildLite = BuildLite(type);
 
@@ -481,10 +520,10 @@ namespace Signum.Entities.DynamicQuery
                         var mi = t.IsValueType ? miDistinctNullable : miDistinct;
                         return Expression.Call(mi.MakeGenericMethod(t), left.Nullify(), right.Nullify());
                     }
-                case FilterOperation.GreaterThan: return Expression.GreaterThan(left, right);
-                case FilterOperation.GreaterThanOrEqual: return Expression.GreaterThanOrEqual(left, right);
-                case FilterOperation.LessThan: return Expression.LessThan(left, right);
-                case FilterOperation.LessThanOrEqual: return Expression.LessThanOrEqual(left, right);
+                case FilterOperation.GreaterThan: return Expression.GreaterThan(CastNumber(left), CastNumber(right));
+                case FilterOperation.GreaterThanOrEqual: return Expression.GreaterThanOrEqual(CastNumber(left), CastNumber(right));
+                case FilterOperation.LessThan: return Expression.LessThan(CastNumber(left), CastNumber(right));
+                case FilterOperation.LessThanOrEqual: return Expression.LessThanOrEqual(CastNumber(left), CastNumber(right));
                 case FilterOperation.Contains: return Expression.Call(Fix(left, inMemory), miContains, right);
                 case FilterOperation.StartsWith: return Expression.Call(Fix(left, inMemory), miStartsWith, right);
                 case FilterOperation.EndsWith: return Expression.Call(Fix(left, inMemory), miEndsWith, right);
@@ -498,12 +537,31 @@ namespace Signum.Entities.DynamicQuery
             }
         }
 
+        static Expression CastNumber(Expression expression)
+        {
+            var type = expression.Type.UnNullify();
+            if (!type.IsEnum)
+                return expression;
+
+            var uType = Enum.GetUnderlyingType(type);
+
+            if(expression.Type.IsNullable())
+                uType = uType.Nullify();
+
+            return Expression.Convert(expression, uType);
+        }
+
         private static Expression Fix(Expression left, bool inMemory)
         {
             if (inMemory)
                 return Expression.Coalesce(left, Expression.Constant(""));
 
             return left;
+        }
+
+        public static bool IsList(this FilterOperation fo)
+        {
+            return fo == FilterOperation.IsIn || fo == FilterOperation.IsNotIn;
         }
     }
 

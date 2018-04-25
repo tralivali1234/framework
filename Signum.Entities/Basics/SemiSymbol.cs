@@ -15,7 +15,7 @@ namespace Signum.Entities.Basics
     public abstract class SemiSymbol : Entity
     {
         static Dictionary<Type, Dictionary<string, SemiSymbol>> Symbols = new Dictionary<Type, Dictionary<string, SemiSymbol>>();
-        static Dictionary<Type, Dictionary<string, Tuple<PrimaryKey, string>>> Ids = new Dictionary<Type, Dictionary<string, Tuple<PrimaryKey, string>>>();
+        static Dictionary<Type, Dictionary<string, (PrimaryKey id, string name)>> Ids = new Dictionary<Type, Dictionary<string, (PrimaryKey id, string name)>>();
 
         public SemiSymbol() { }
 
@@ -40,15 +40,27 @@ namespace Signum.Entities.Basics
                 throw new InvalidOperationException(string.Format("No field with name {0} found in {1}", fieldName, mi.DeclaringType.Name));
 
             this.Key = mi.DeclaringType.Name + "." + fieldName;
+            
+            try
+            {
+                Symbols.GetOrCreate(this.GetType()).Add(this.Key, this);
+            }
+            catch (Exception e) when (StartParameters.IgnoredCodeErrors != null)
+            {
+                //Could happend if Dynamic code has a duplicated name
+                this.fieldInfo = null;
+                this.Key = null;
+                StartParameters.IgnoredCodeErrors.Add(e);
+                return;
+            }
 
             var dic = Ids.TryGetC(this.GetType());
             if (dic != null)
             {
-                var tup = dic.TryGetC(this.Key);
+                var tup = dic.TryGetS(this.Key);
                 if (tup != null)
-                    this.SetIdAndName(tup);
+                    this.SetIdAndName(tup.Value);
             }
-            Symbols.GetOrCreate(this.GetType()).Add(this.Key, this);
         }
 
         private static bool IsStaticClass(Type type)
@@ -58,6 +70,7 @@ namespace Signum.Entities.Basics
 
         [Ignore]
         FieldInfo fieldInfo;
+        [HiddenProperty]
         public FieldInfo FieldInfo
         {
             get { return fieldInfo; }
@@ -65,7 +78,7 @@ namespace Signum.Entities.Basics
         }
 
 
-        [SqlDbType(Size = 200), UniqueIndex(AllowMultipleNulls = true)]
+        [UniqueIndex(AllowMultipleNulls = true)]
         [StringLengthValidator(AllowNulls = true, Min = 3, Max = 200)]
         public string Key { get; set; }
 
@@ -87,7 +100,6 @@ namespace Signum.Entities.Basics
                 .Any(a => typeof(SemiSymbol).IsAssignableFrom(a.FieldType)) ? DescriptionOptions.Members : (DescriptionOptions?)null;
         }
 
-        [NotNullable, SqlDbType(Size = 100)]
         [StringLengthValidator(AllowNulls = false, Min = 3, Max = 100)]
         public string Name { get; set; }
 
@@ -98,7 +110,7 @@ namespace Signum.Entities.Basics
             return ToStringExpression.Evaluate(this);
         }
 
-        public static void SetSemiSymbolIdsAndNames<S>(Dictionary<string, Tuple<PrimaryKey, string>> symbolIds)
+        public static void SetSemiSymbolIdsAndNames<S>(Dictionary<string, (PrimaryKey id, string name)> symbolIds)
             where S : SemiSymbol
         {
             SemiSymbol.Ids[typeof(S)] = symbolIds;
@@ -116,17 +128,17 @@ namespace Signum.Entities.Basics
             }
         }
 
-        private void SetIdAndName(Tuple<PrimaryKey, string> idAndName)
+        internal void SetIdAndName((PrimaryKey id, string name) tuple)
         {
-            this.id = idAndName.Item1;
-            this.Name = idAndName.Item2;
+            this.id = tuple.id;
+            this.Name = tuple.name;
             this.IsNew = false;
             this.toStr = this.Key;
             if (this.Modified != ModifiedState.Sealed)
                 this.Modified = ModifiedState.Sealed;
         }
 
-        internal static Dictionary<string, Tuple<PrimaryKey, string>> GetSemiSymbolIdsAndNames(Type type)
+        internal static Dictionary<string, (PrimaryKey id, string name)> GetSemiSymbolIdsAndNames(Type type)
         {
             return SemiSymbol.Ids.GetOrThrow(type);
         }

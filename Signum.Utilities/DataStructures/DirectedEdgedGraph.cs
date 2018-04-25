@@ -158,8 +158,7 @@ namespace Signum.Utilities.DataStructures
 
         Dictionary<T, E> TryGetOrAdd(T node)
         {
-            Dictionary<T, E> result;
-            if (adjacency.TryGetValue(node, out result))
+            if (adjacency.TryGetValue(node, out Dictionary<T, E> result))
                 return result;
 
             result = new Dictionary<T, E>(Comparer);
@@ -187,8 +186,7 @@ namespace Signum.Utilities.DataStructures
         {
             foreach (var item in adjacency)
             {
-                E edge;
-                if (item.Value.TryGetValue(node, out edge))
+                if (item.Value.TryGetValue(node, out E edge))
                     yield return KVP.Create(item.Key, edge);
             }
         }
@@ -233,14 +231,38 @@ namespace Signum.Utilities.DataStructures
             if (condition != null && !condition(node))
                 return;
 
-            if (preAction != null)
-                preAction(node);
+            preAction?.Invoke(node);
 
             foreach (T item in RelatedTo(node).Keys)
                 DepthExplore(item, condition, preAction, postAction);
 
-            if (postAction != null)
-                postAction(node);
+            postAction?.Invoke(node);
+        }
+
+        public void DepthExploreConnections(T node, Func<T, E, T, bool> condition)
+        {
+            foreach (var kvp in RelatedTo(node))
+            {
+                if (condition(node, kvp.Value, kvp.Key))
+                    DepthExploreConnections(kvp.Key, condition);
+            }
+        }
+
+        public void DepthExploreConnections(Stack<T> stack, Func<T, E, T, bool> condition)
+        {
+            var node = stack.Peek();
+            foreach (var kvp in RelatedTo(node))
+            {
+                if (!stack.Contains(kvp.Key))
+                {
+                    stack.Push(kvp.Key);
+
+                    if (condition(node, kvp.Value, kvp.Key))
+                        DepthExploreConnections(stack, condition);
+
+                    stack.Pop();
+                }
+            }
         }
 
         public void BreadthExplore(T root, Func<T, bool> condition, Action<T> action)
@@ -257,6 +279,23 @@ namespace Signum.Utilities.DataStructures
                 action(node);
 
                 queue.EnqueueRange(RelatedTo(node).Keys);
+            }
+        }
+
+        public void BreadthExploreConnections(T root, Func<T, E, T, bool> condition)
+        {
+            Queue<T> queue = new Queue<T>();
+            queue.Enqueue(root);
+
+            while (queue.Count > 0)
+            {
+                T node = queue.Dequeue();
+
+                foreach (var kvp in RelatedTo(node))
+                {
+                    if (condition(node, kvp.Value, kvp.Key))
+                        queue.Enqueue(kvp.Key);
+                }
             }
         }
 
@@ -507,12 +546,22 @@ namespace Signum.Utilities.DataStructures
             return adjacency.Where(a => a.Value.Count == 0).Select(a => a.Key).ToHashSet();
         }
 
-        public DirectedEdgedGraph<T, E> WhereEdges(Func<Edge<T, E>, bool> condition)
+        public DirectedEdgedGraph<T, E> WhereEdges(Func<Edge<T, E>, bool> condition, bool keepAllNodes)
         {
-            DirectedEdgedGraph<T, E> result = new DirectedEdgedGraph<T, E>(Comparer);
-            foreach (var item in Nodes)
-                result.Add(item, RelatedTo(item).Where(to => condition(new Edge<T, E>(item, to.Key, to.Value))));
-            return result;
+            if (keepAllNodes)
+            {
+                DirectedEdgedGraph<T, E> result = new DirectedEdgedGraph<T, E>(Comparer);
+                foreach (var item in Nodes)
+                    result.Add(item, RelatedTo(item).Where(to => condition(new Edge<T, E>(item, to.Key, to.Value))));
+                return result;
+            }
+            else
+            {
+                DirectedEdgedGraph<T, E> result = new DirectedEdgedGraph<T, E>(Comparer);
+                foreach (var e in EdgesWithValue.Where(condition))
+                    result.Add(e.From, e.To, e.Value);
+                return result;
+            }
         }
 
         public List<T> ShortestPath(T from, T to, Func<E, int> getWeight)
@@ -534,12 +583,16 @@ namespace Signum.Utilities.DataStructures
 
                 foreach (var v in RelatedTo(u))
                 {
-                    int newDist = distance[u] + getWeight(v.Value);
-                    if (newDist < distance[v.Key])
+                    int weight = getWeight(v.Value);
+                    if (weight != int.MaxValue)
                     {
-                        distance[v.Key] = newDist;
-                        queue.Update(v.Key);
-                        previous[v.Key] = u;
+                        int newDist = distance[u] + weight;
+                        if (newDist < distance[v.Key])
+                        {
+                            distance[v.Key] = newDist;
+                            queue.Update(v.Key);
+                            previous[v.Key] = u;
+                        }
                     }
                 }
                 queue.Pop();

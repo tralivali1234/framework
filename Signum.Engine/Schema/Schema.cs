@@ -1,24 +1,20 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Reflection;
-using Signum.Entities;
-using Signum.Utilities;
-using System.Globalization;
-using System.Diagnostics;
-using Signum.Utilities.ExpressionTrees;
-using Signum.Utilities.DataStructures;
-using System.Threading;
-using System.Linq.Expressions;
-using Signum.Entities.Reflection;
-using System.Collections;
-using Signum.Utilities.Reflection;
-using Signum.Engine.Linq;
-using Signum.Entities.DynamicQuery;
+﻿using Signum.Engine.Basics;
 using Signum.Engine.DynamicQuery;
-using Signum.Entities.Basics;
-using Signum.Engine.Basics;
+using Signum.Engine.Linq;
+using Signum.Entities;
+using Signum.Entities.DynamicQuery;
+using Signum.Entities.Reflection;
+using Signum.Utilities;
+using Signum.Utilities.DataStructures;
+using Signum.Utilities.ExpressionTrees;
+using Signum.Utilities.Reflection;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Reflection;
 
 namespace Signum.Engine.Maps
 {
@@ -41,7 +37,13 @@ namespace Signum.Engine.Maps
             set { this.version = value; }
         }
 
-        string applicationName; 
+        public event Action OnMetadataInvalidated;
+        public void InvalidateMetadata()
+        {
+            this.OnMetadataInvalidated?.Invoke();
+        }
+
+        string applicationName;
         public string ApplicationName
         {
             get { return applicationName ?? (applicationName = AppDomain.CurrentDomain.FriendlyName); }
@@ -106,16 +108,29 @@ namespace Signum.Engine.Maps
             return (EntityEvents<T>)entityEvents.GetOrCreate(typeof(T), () => new EntityEvents<T>());
         }
 
-        internal void OnPreSaving(Entity entity, ref bool graphModified)
+
+        internal void OnPreSaving(Entity entity, PreSavingContext ctx)
         {
             AssertAllowed(entity.GetType(), inUserInterface: false);
 
             IEntityEvents ee = entityEvents.TryGetC(entity.GetType());
 
             if (ee != null)
-                ee.OnPreSaving(entity, ref graphModified);
+                ee.OnPreSaving(entity, ctx);
 
-            entityEventsGlobal.OnPreSaving(entity, ref graphModified);
+            entityEventsGlobal.OnPreSaving(entity, ctx);
+        }
+
+        internal Entity OnAlternativeRetriving(Type entityType, PrimaryKey id)
+        {
+            AssertAllowed(entityType, inUserInterface: false);
+
+            IEntityEvents ee = entityEvents.TryGetC(entityType);
+
+            if (ee == null)
+                return null;
+
+            return ee.OnAlternativeRetriving(id);
         }
 
         internal void OnSaving(Entity entity)
@@ -155,28 +170,31 @@ namespace Signum.Engine.Maps
             entityEventsGlobal.OnRetrieved(entity);
         }
 
-        internal void OnPreUnsafeDelete<T>(IQueryable<T> entityQuery) where T : Entity
+        internal IDisposable OnPreUnsafeDelete<T>(IQueryable<T> entityQuery) where T : Entity
         {
             AssertAllowed(typeof(T), inUserInterface: false);
 
             EntityEvents<T> ee = (EntityEvents<T>)entityEvents.TryGetC(typeof(T));
 
-            if (ee != null)
-                ee.OnPreUnsafeDelete(entityQuery);
+            if (ee == null)
+                return null;
+
+            return ee.OnPreUnsafeDelete(entityQuery);
         }
 
-        internal void OnPreUnsafeMListDelete<T>(IQueryable mlistQuery, IQueryable<T> entityQuery) where T : Entity
+        internal IDisposable OnPreUnsafeMListDelete<T>(IQueryable mlistQuery, IQueryable<T> entityQuery) where T : Entity
         {
             AssertAllowed(typeof(T), inUserInterface: false);
 
             EntityEvents<T> ee = (EntityEvents<T>)entityEvents.TryGetC(typeof(T));
 
-            if (ee != null)
-                ee.OnPreUnsafeMListDelete(mlistQuery, entityQuery);
+            if (ee == null)
+                return null;
+
+            return ee.OnPreUnsafeMListDelete(mlistQuery, entityQuery);
         }
-
-
-        internal void OnPreUnsafeUpdate(IUpdateable update)
+        
+        internal IDisposable OnPreUnsafeUpdate(IUpdateable update)
         {
             var type = update.EntityType;
             if (type.IsInstantiationOf(typeof(MListElement<,>)))
@@ -186,8 +204,10 @@ namespace Signum.Engine.Maps
 
             var ee = entityEvents.TryGetC(type);
 
-            if (ee != null)
-                ee.OnPreUnsafeUpdate(update);
+            if (ee == null)
+                return null;
+
+            return ee.OnPreUnsafeUpdate(update);
         }
 
         internal LambdaExpression OnPreUnsafeInsert(Type type, IQueryable query, LambdaExpression constructor, IQueryable entityQuery)
@@ -198,7 +218,7 @@ namespace Signum.Engine.Maps
 
             if (ee == null)
                 return constructor;
-         
+
             return ee.OnPreUnsafeInsert(query, constructor, entityQuery);
         }
 
@@ -220,6 +240,43 @@ namespace Signum.Engine.Maps
                 return null;
 
             return ee.CacheController;
+        }
+
+        internal IEnumerable<FieldBinding> GetAdditionalQueryBindings(PropertyRoute parent, PrimaryKeyExpression id, NewExpression period)
+        {
+            //AssertAllowed(parent.RootType, inUserInterface: false);
+
+            var ee = entityEvents.TryGetC(parent.RootType);
+            if (ee == null || ee.AdditionalBindings == null)
+                return Enumerable.Empty<FieldBinding>();
+
+            return ee.AdditionalBindings
+                .Where(kvp => kvp.Key.Parent.Equals(parent))
+                .Select(kvp => new FieldBinding(kvp.Key.FieldInfo, new AdditionalFieldExpression(kvp.Key.FieldInfo.FieldType, (PrimaryKeyExpression)id, period, kvp.Key)))
+                .ToList();
+        }
+
+        public List<IAdditionalBinding> GetAdditionalBindings(Type rootType)
+        {
+            var ee = entityEvents.TryGetC(rootType);
+            if (ee == null || ee.AdditionalBindings == null)
+                return null;
+
+            return ee.AdditionalBindings.Values.ToList();
+        }
+
+        internal LambdaExpression GetAdditionalQueryBinding(PropertyRoute pr, bool entityCompleter)
+        {
+            //AssertAllowed(pr.Type, inUserInterface: false);
+
+            var ee = entityEvents.GetOrThrow(pr.RootType);
+
+            var ab = ee.AdditionalBindings.GetOrThrow(pr);
+
+            if (entityCompleter && !ab.ShouldSet())
+                return null;
+
+            return ab.ValueExpression;
         }
 
         internal CacheControllerBase<T> CacheController<T>() where T : Entity
@@ -248,8 +305,10 @@ namespace Signum.Engine.Maps
             return result;
         }
 
-        FilterQueryResult<T> CombineFilterResult<T>(FilterQueryResult<T> result, FilterQueryResult<T> expression) 
-            where T: Entity
+
+
+        FilterQueryResult<T> CombineFilterResult<T>(FilterQueryResult<T> result, FilterQueryResult<T> expression)
+            where T : Entity
         {
             if (result == null)
                 return expression;
@@ -266,7 +325,7 @@ namespace Signum.Engine.Maps
         }
 
         public Func<T, bool> GetInMemoryFilter<T>(bool userInterface)
-            where T: Entity
+            where T : Entity
         {
             using (userInterface ? ExecutionMode.UserInterface() : null)
             {
@@ -277,7 +336,7 @@ namespace Signum.Engine.Maps
                 Func<T, bool> result = null;
                 foreach (var item in ee.OnFilterQuery().NotNull())
                 {
-                    if(item.InMemoryFunction == null)
+                    if (item.InMemoryFunction == null)
                         throw new InvalidOperationException("FilterQueryResult with InDatabaseExpresson '{0}' has no equivalent InMemoryFunction"
                         .FormatWith(item.InDatabaseExpresson.ToString()));
 
@@ -343,7 +402,7 @@ namespace Signum.Engine.Maps
             using (CultureInfoUtils.ChangeBothCultures(ForceCultureInfo))
             using (ExecutionMode.Global())
             {
-                Replacements replacements = new Replacements() { Interactive = interactive, ReplaceDatabaseName = replaceDatabaseName, SchemaOnly = schemaOnly  };
+                Replacements replacements = new Replacements() { Interactive = interactive, ReplaceDatabaseName = replaceDatabaseName, SchemaOnly = schemaOnly };
                 SqlPreCommand command = Synchronizing
                     .GetInvocationListTyped()
                     .Select(e =>
@@ -354,13 +413,31 @@ namespace Signum.Engine.Maps
                         }
                         catch (Exception ex)
                         {
-                            return new SqlPreCommandSimple(" -- Exception on {0}.{1}: {2}".FormatWith(e.Method.DeclaringType.Name, e.Method.Name, ex.Message));
+                            return new SqlPreCommandSimple("-- Exception on {0}.{1}\r\n{2}".FormatWith(e.Method.DeclaringType.Name, e.Method.Name, ex.Message.Indent(2, '-')));
                         }
                     })
                     .Combine(Spacing.Triple);
 
                 return command;
             }
+        }
+
+        ConcurrentDictionary<Type, Table> Views = new ConcurrentDictionary<Type, Maps.Table>();
+        public Table View<T>() where T : IView
+        {
+            return View(typeof(T));
+        }
+
+        public Table View(Type viewType)
+        {
+            var tn = this.Settings.TypeAttribute<TableNameAttribute>(viewType);
+
+            if (tn?.SchemaName == "sys")
+            {
+                return ViewBuilder.NewView(viewType);
+            }
+
+            return Views.GetOrCreate(viewType, ViewBuilder.NewView(viewType));
         }
 
         public event Func<SqlPreCommand> Generating;
@@ -397,7 +474,7 @@ namespace Signum.Engine.Maps
             SchemaCompleted = null;
         }
 
-        public void WhenIncluded<T>(Action action) where T: Entity
+        public void WhenIncluded<T>(Action action) where T : Entity
         {
             SchemaCompleted += () =>
             {
@@ -434,7 +511,8 @@ namespace Signum.Engine.Maps
 
             using (ExecutionMode.Global())
                 foreach (var item in Initializing.GetInvocationListTyped())
-                    item();
+                    using (HeavyProfiler.Log("Initialize", () => item.Method.DeclaringType.ToString()))
+                        item();
 
             Initializing = null;
         }
@@ -461,7 +539,6 @@ namespace Signum.Engine.Maps
             Generating += Assets.Schema_Generating;
 
             Synchronizing += SchemaSynchronizer.SnapshotIsolation;
-            Synchronizing += SchemaSynchronizer.SynchronizeSchemasScript;
             Synchronizing += SchemaSynchronizer.SynchronizeTablesScript;
             Synchronizing += TypeLogic.Schema_Synchronizing;
             Synchronizing += Assets.Schema_Synchronizing;
@@ -477,9 +554,19 @@ namespace Signum.Engine.Maps
             return Table(typeof(T));
         }
 
+        public TableMList TableMList<E, V>(Expression<Func<E, MList<V>>> mListProperty)
+            where E : Entity
+        {
+            PropertyInfo pi = ReflectionTools.GetPropertyInfo(mListProperty);
+
+            var list = (FieldMList)Schema.Current.Field(mListProperty);
+
+            return list.TableMList;
+        }
+
         public Table Table(Type type)
         {
-            return Tables.GetOrThrow(type, "Table {0} not loaded in schema");
+            return Tables.GetOrThrow(type, "Table {0} not included in the schema. Consider sb.Include<{0}>()");
         }
 
         internal static Field FindField(IFieldFinder fieldFinder, MemberInfo[] members)
@@ -548,22 +635,19 @@ namespace Signum.Engine.Maps
             Type type = route.RootType;
 
             if (!Tables.ContainsKey(type))
-                return Implementations.By(route.Type.CleanType());
+                return Schema.Current.Settings.GetImplementations(route);
 
             Field field = TryFindField(Table(type), route.Members);
             //if (field == null)
             //    return Implementations.ByAll;
 
-            FieldReference refField = field as FieldReference;
-            if (refField != null)
+            if (field is FieldReference refField)
                 return Implementations.By(refField.FieldType.CleanType());
 
-            FieldImplementedBy ibField = field as FieldImplementedBy;
-            if (ibField != null)
+            if (field is FieldImplementedBy ibField)
                 return Implementations.By(ibField.ImplementationColumns.Keys.ToArray());
 
-            FieldImplementedByAll ibaField = field as FieldImplementedByAll;
-            if (ibaField != null)
+            if (field is FieldImplementedByAll ibaField)
                 return Implementations.ByAll;
 
             Implementations? implementations = CalculateExpressionImplementations(route);
@@ -622,6 +706,30 @@ namespace Signum.Engine.Maps
             return TryFindField(Table(route.RootType), route.Members);
         }
 
+        public bool HasSomeIndex(PropertyRoute route)
+        {
+            var field = TryField(route);
+
+            if (field == null)
+                return false;
+
+            if (field.UniqueIndex != null)
+                return true;
+
+            var cols = field.Columns();
+
+            if (cols.Any(c => c.ReferenceTable != null))
+                return true;
+            
+            var mlistPr = route.GetMListItemsRoute();
+
+            ITable table = mlistPr == null ?
+                (ITable)Table(route.RootType) :
+                (ITable)((FieldMList)Field(mlistPr.Parent)).TableMList;
+
+            return table.MultiColumnIndexes != null && table.MultiColumnIndexes.Any(index => index.Columns.Any(cols.Contains));
+        }
+
         public override string ToString()
         {
             return "Schema ( tables: {0} )".FormatWith(tables.Count);
@@ -638,9 +746,11 @@ namespace Signum.Engine.Maps
             }
         }
 
+        public Func<DatabaseName, bool> IsExternalDatabase = db => false;
+
         public List<DatabaseName> DatabaseNames()
         {
-            return GetDatabaseTables().Select(a => a.Name.Schema?.Database).Distinct().ToList();
+            return GetDatabaseTables().Select(a => a.Name.Schema?.Database).Where(a => !IsExternalDatabase(a)).Distinct().ToList();
         }
 
         public DirectedEdgedGraph<Table, RelationInfo> ToDirectedGraph()
@@ -653,7 +763,7 @@ namespace Signum.Engine.Maps
             return typeCachesLazy.Value.IdToType[id];
         }
 
-      
+
     }
 
     public class RelationInfo
@@ -665,7 +775,7 @@ namespace Signum.Engine.Maps
         public bool IsImplementedByAll { get; set; }
     }
 
-  
+
 
     public interface ICacheController
     {
@@ -700,9 +810,8 @@ namespace Signum.Engine.Maps
 
         public abstract string GetToString(PrimaryKey id);
         public abstract string TryGetToString(PrimaryKey id);
+
+        public abstract List<T> RequestByBackReference<R>(IRetriever retriever, Expression<Func<T, Lite<R>>> backReference, Lite<R> lite)
+            where R : Entity;
     }
-
-    
-
-
 }

@@ -53,6 +53,25 @@ namespace Signum.Test.LinqProviderUpdateDelete
         }
 
         [TestMethod]
+        public void InsertSimpleParameter()
+        {
+            using (Transaction tr = new Transaction())
+            {
+                int value = Database.Query<AlbumEntity>().Select(a => new AlbumEntity
+                {
+                    Author = a.Author,
+                    BonusTrack = a.BonusTrack,
+                    Label = a.Label,
+                    Name = a.Name + "copy",
+                    State = a.State,
+                    Year = a.Year,
+                }.SetReadonly(_ => _.Ticks, a.Ticks)).UnsafeInsert(a => a);
+
+                //tr.Commit();
+            }
+        }
+
+        [TestMethod]
         public void InsertSimpleId()
         {
             using (Transaction tr = new Transaction())
@@ -81,12 +100,30 @@ namespace Signum.Test.LinqProviderUpdateDelete
             using (Transaction tr = new Transaction())
             {
                 int value = Database.MListQuery((AlbumEntity a) => a.Songs)
-                    .UnsafeInsertMList((AlbumEntity a) => a.Songs, mle => new MListElement<AlbumEntity, SongEntity>
+                    .UnsafeInsertMList((AlbumEntity a) => a.Songs, mle => new MListElement<AlbumEntity, SongEmbedded>
                 {
                     Parent = mle.Parent,
                     Element = mle.Element,
                     Order = mle.Order,
                 });
+                //tr.Commit();
+            }
+        }
+
+
+        [TestMethod]
+        public void InsertMListParameter()
+        {
+            using (Transaction tr = new Transaction())
+            {
+                int value = Database.MListQuery((AlbumEntity a) => a.Songs)
+                    .Select(mle => new MListElement<AlbumEntity, SongEmbedded>
+                    {
+                        Parent = mle.Parent,
+                        Element = mle.Element,
+                        Order = mle.Order,
+                    })
+                    .UnsafeInsertMList((AlbumEntity a) => a.Songs, mle => mle);
                 //tr.Commit();
             }
         }
@@ -100,7 +137,7 @@ namespace Signum.Test.LinqProviderUpdateDelete
                 using (Administrator.DisableIdentity((AlbumEntity a)=>a.Songs))
                 {
                     int value = Database.MListQuery((AlbumEntity a) => a.Songs)
-                        .UnsafeInsertMList((AlbumEntity a) => a.Songs, mle => new MListElement<AlbumEntity, SongEntity>
+                        .UnsafeInsertMList((AlbumEntity a) => a.Songs, mle => new MListElement<AlbumEntity, SongEmbedded>
                         {
                             Parent = mle.Parent,
                             Element = mle.Element,
@@ -143,6 +180,27 @@ namespace Signum.Test.LinqProviderUpdateDelete
                 });
                 //tr.Commit();
             }
+        }
+
+        [TableName("#MyView")]
+        class MyTempView : IView
+        {
+            [ViewPrimaryKey]
+            public Lite<ArtistEntity> Artist { get; set; }
+        }
+
+        [TestMethod]
+        public void UnsafeInsertMyView()
+        {
+            using (Transaction tr = new Transaction())
+            {
+                Administrator.CreateTemporaryTable<MyTempView>();
+
+                Database.Query<ArtistEntity>().Where(a => a.Name.StartsWith("M")).UnsafeInsertView(a => new MyTempView { Artist = a.ToLite() });
+                
+                tr.Commit();
+            }
+
         }
     }
 }

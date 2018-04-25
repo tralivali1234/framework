@@ -18,6 +18,8 @@ namespace Signum.Engine.CodeGeneration
         public static LogicCodeGenerator Logic = new LogicCodeGenerator();
         public static WebCodeGenerator Web = new WebCodeGenerator();
         public static WindowsCodeGenerator Windows = new WindowsCodeGenerator();
+        public static ReactCodeGenerator React = new ReactCodeGenerator();
+        public static ReactCodeConverter ReactTransformer = new ReactCodeConverter();
 
         public static void GenerateCodeConsole()
         {
@@ -29,6 +31,8 @@ namespace Signum.Engine.CodeGeneration
                     {"L", Logic.GenerateLogicFromEntities, "Logic (from entites)"},
                     {"Web", Web.GenerateWebFromEntities, "Web (from entites)"},
                     {"Win", Windows.GenerateWindowsFromEntities, "Windows (from entites)"},
+                    {"React", React.GenerateReactFromEntities, "React (from entites)"},
+                    {"WR", ReactTransformer.ToRazorInteractive, "React (from web)"},
                 }.Choose();
 
                 if (action == null)
@@ -103,8 +107,7 @@ namespace Signum.Engine.CodeGeneration
                     name = item.FullName.RemovePrefix(solutionName + ".Entities");
                 else
                 {
-                    int startName, rubbish;
-                    int length = sd.LongestCommonSubstring(name, item.FullName, out startName, out rubbish);
+                    int length = sd.LongestCommonSubstring(name, item.FullName, out int startName, out int rubbish);
 
                     name = name.Substring(startName, length);
 

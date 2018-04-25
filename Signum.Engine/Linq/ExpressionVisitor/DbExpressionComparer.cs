@@ -169,8 +169,7 @@ namespace Signum.Engine.Linq
 
             if (aliasMap != null)
             {
-                Alias mapped;
-                if (aliasMap.TryGetValue(a, out mapped))
+                if (aliasMap.TryGetValue(a, out Alias mapped))
                     return mapped == b;
             }
             return a == b;
@@ -410,7 +409,8 @@ namespace Signum.Engine.Linq
 
         protected virtual bool CompareDelete(DeleteExpression a, DeleteExpression b)
         {
-            return a.Table == b.Table
+            return a.Table == b.Table 
+                && a.UseHistoryTable == b.UseHistoryTable
                 && Compare(a.Source, b.Source)
                 && Compare(a.Where, b.Where);
         }
@@ -418,6 +418,7 @@ namespace Signum.Engine.Linq
         protected virtual bool CompareUpdate(UpdateExpression a, UpdateExpression b)
         {
             return a.Table == b.Table
+                && a.UseHistoryTable == b.UseHistoryTable
                 && CompareList(a.Assigments, b.Assigments, CompareAssigment)
                 && Compare(a.Source, b.Source)
                 && Compare(a.Where, b.Where);
@@ -426,6 +427,7 @@ namespace Signum.Engine.Linq
         protected virtual bool CompareInsertSelect(InsertSelectExpression a, InsertSelectExpression b)
         {
             return a.Table == b.Table
+                && a.UseHistoryTable == b.UseHistoryTable
                 && CompareList(a.Assigments, b.Assigments, CompareAssigment)
                 && Compare(a.Source, b.Source);
         }
@@ -514,6 +516,12 @@ namespace Signum.Engine.Linq
         protected virtual bool CompareMList(MListExpression a, MListExpression b)
         {
             return a.TableMList == b.TableMList
+                && Compare(a.BackID, b.BackID);
+        }
+
+        protected virtual bool CompareMList(AdditionalFieldExpression a, AdditionalFieldExpression b)
+        {
+            return a.Route.Equals(b.Route)
                 && Compare(a.BackID, b.BackID);
         }
 

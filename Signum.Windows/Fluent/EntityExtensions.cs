@@ -20,8 +20,7 @@ namespace Signum.Windows
     {
         public static bool HasChanges(this FrameworkElement element)
         {
-            IHasChangesHandler hch = element as IHasChangesHandler;
-            if (hch != null)
+            if (element is IHasChangesHandler hch)
                 return hch.HasChanges();
 
             return GraphExplorer.HasChanges((Modifiable)element.DataContext);
@@ -29,8 +28,7 @@ namespace Signum.Windows
 
         public static bool AssertErrors(this FrameworkElement element)
         {
-            IAssertErrorsHandler aeh = element as IAssertErrorsHandler;
-            if (aeh != null)
+            if (element is IAssertErrorsHandler aeh)
                 return aeh.AssertErrors();
 
             string error = GetErrors(element);
@@ -49,7 +47,7 @@ namespace Signum.Windows
 
             if (error != null)
             {
-                MessageBox.Show(window, NormalWindowMessage.ImpossibleToSaveIntegrityCheckFailed.NiceToString() + error.Values.SelectMany(a=>a.Values).ToString("\r\n"), NormalWindowMessage.ThereAreErrors.NiceToString(), 
+                MessageBox.Show(window, NormalWindowMessage.ImpossibleToSaveIntegrityCheckFailed.NiceToString() + error.Values.SelectMany(a=>a.Errors.Values).ToString("\r\n"), NormalWindowMessage.ThereAreErrors.NiceToString(), 
                     MessageBoxButton.OK, MessageBoxImage.Error);
                 return false;
             }
@@ -58,13 +56,12 @@ namespace Signum.Windows
 
         public static string GetErrors(this FrameworkElement element)
         {
-            IGetErrorsHandler geh = element as IGetErrorsHandler;
-            if (geh != null)
+            if (element is IGetErrorsHandler geh)
                 return geh.GetErrors();
 
             var visualErrors = VisualErrors(element).DefaultText(null);
 
-            var entityErrors = GetErrors((Modifiable)element.DataContext)?.Values.ToString(d => d.Values.ToString("\r\n"), "\r\n");
+            var entityErrors = GetErrors((Modifiable)element.DataContext)?.Values.ToString(d => d.Errors.Values.ToString("\r\n"), "\r\n");
 
             return "\r\n".Combine(visualErrors, entityErrors).DefaultText(null);
         }
@@ -78,7 +75,7 @@ namespace Signum.Windows
             return visualErrors;
         }
 
-        public static Dictionary<Guid, Dictionary<string, string>> GetErrors(Modifiable mod)
+        public static Dictionary<Guid, IntegrityCheck> GetErrors(Modifiable mod)
         {
             var graph = GraphExplorer.PreSaving(() => GraphExplorer.FromRoot(mod));
             var error = GraphExplorer.FullIntegrityCheck(graph);

@@ -105,6 +105,9 @@ namespace ConsoleApplication1
             set { Set(ref phone, value); }
         }
 
+        string bla;
+        public string SuperPhone => Phone;
+
         [NotNullable, SqlDbType(Size = 24)]
         string phone2;
         [StringLengthValidator(AllowNulls = false, Min = 3, Max = 24), TelephoneValidator]
@@ -186,6 +189,9 @@ namespace ConsoleApplication1
         [StringLengthValidator(AllowNulls = false, Min = 3, Max = 24), TelephoneValidator]
         public string Phone { get; set; }
 
+        string bla;
+        public string SuperPhone => Phone;
+
         [NotNullable, SqlDbType(Size = 24)]
         [StringLengthValidator(AllowNulls = false, Min = 3, Max = 24), TelephoneValidator]
         public string Phone2 { get; internal set; }
@@ -222,7 +228,7 @@ namespace ConsoleApplication1
 }";
             VerifyFix(test, fixtest);
         }
-
+        
 
     }
 }

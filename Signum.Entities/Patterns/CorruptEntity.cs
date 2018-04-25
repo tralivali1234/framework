@@ -13,13 +13,13 @@ namespace Signum.Entities
 
         public bool Corrupt { get; set; }
 
-        protected internal override void PreSaving(ref bool graphModified)
+        protected internal override void PreSaving(PreSavingContext ctx)
         {
-            base.PreSaving(ref graphModified);
+            base.PreSaving(ctx);
 
             if (Corrupt)
             {
-                var integrity = MainEntity.IdentifiableIntegrityCheckBase(); // So, no corruption allowed
+                var integrity = MainEntity.EntityIntegrityCheckBase(); // So, no corruption allowed
                 if (integrity == null)
                 {
                     this.Corrupt = false;
@@ -52,20 +52,18 @@ namespace Signum.Entities
             return new Disposable(() => allowed.Value = true);
         }
 
-        public static event Action<Entity, Dictionary<Guid, Dictionary<string, string>>> SaveCorrupted;
+        public static event Action<Entity, Dictionary<Guid, IntegrityCheck>> SaveCorrupted;
 
-        public static void OnSaveCorrupted(Entity corruptEntity, Dictionary<Guid, Dictionary<string, string>> integrity)
+        public static void OnSaveCorrupted(Entity corruptEntity, Dictionary<Guid, IntegrityCheck> integrity)
         {
-            if (SaveCorrupted != null)
-                SaveCorrupted(corruptEntity, integrity);
+            SaveCorrupted?.Invoke(corruptEntity, integrity);
         }
 
         public static event Action<Entity> CorruptionRemoved;
 
         public static void OnCorruptionRemoved(Entity corruptEntity)
         {
-            if (CorruptionRemoved != null)
-                CorruptionRemoved(corruptEntity);
+            CorruptionRemoved?.Invoke(corruptEntity);
         }
     }
 

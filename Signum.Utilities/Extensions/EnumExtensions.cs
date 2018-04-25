@@ -21,6 +21,16 @@ namespace Signum.Utilities
             return (T)Enum.Parse(typeof(T), str, ignoreCase);
         }
 
+        public static T? TryToEnum<T>(this string str) where T : struct
+        {
+            return Enum.TryParse(str, out T result) ? result : (T?)null;
+        }
+
+        public static T? TryToEnum<T>(this string str, bool ignoreCase) where T : struct
+        {
+            return Enum.TryParse(str, ignoreCase, out T result) ? result : (T?)null;
+        }
+
         public static T[] GetValues<T>()
         {
             return (T[])Enum.GetValues(typeof(T));
@@ -65,8 +75,7 @@ namespace Signum.Utilities
 
         public static bool TryParse(string value, Type enumType, bool ignoreCase, out Enum result)
         {
-            int rubish;
-            if (!Enum.IsDefined(enumType, value) && !int.TryParse(value, out rubish))
+            if (!Enum.IsDefined(enumType, value) && !int.TryParse(value, out int rubish))
             {
                 result = null;
                 return false;
@@ -130,7 +139,7 @@ namespace Signum.Utilities
             if (!type.IsEnum)
                 throw new ArgumentException("{0} is not an Enum".FormatWith(type));
 
-            return enumCache.GetOrAdd(type, t => t.GetFields(flags).ToDictionary(fi => (Enum)fi.GetValue(null), fi => fi));
+            return enumCache.GetOrAdd(type, t => t.GetFields(flags).ToDictionaryEx(fi => (Enum)fi.GetValue(null), fi => fi));
         }
     }
 

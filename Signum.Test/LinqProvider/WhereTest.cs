@@ -30,8 +30,8 @@ namespace Signum.Test.LinqProvider
         public void Initialize()
         {
             Connector.CurrentLogger = new DebugTextWriter();
-        }      
-     
+        }
+
         [TestMethod]
         public void Where()
         {
@@ -127,9 +127,9 @@ namespace Signum.Test.LinqProvider
             ArtistEntity wretzky = Database.Query<ArtistEntity>().SingleEx(a => a.Sex == Sex.Female);
 
             BandEntity smashing = (from b in Database.Query<BandEntity>()
-                               from a in b.Members
-                               where a == wretzky
-                               select b).SingleEx();
+                                   from a in b.Members
+                                   where a == wretzky
+                                   select b).SingleEx();
         }
 
 
@@ -139,9 +139,9 @@ namespace Signum.Test.LinqProvider
             ArtistEntity wretzky = Database.Query<ArtistEntity>().SingleEx(a => a.Sex == Sex.Female);
 
             BandEntity smashing = (from b in Database.Query<BandEntity>()
-                               from a in b.Members
-                               where a.ToLite() == wretzky.ToLite()
-                               select b).SingleEx();
+                                   from a in b.Members
+                                   where a.ToLite() == wretzky.ToLite()
+                                   select b).SingleEx();
         }
 
 
@@ -193,6 +193,27 @@ namespace Signum.Test.LinqProvider
                           select a.ToLite()).ToList();
         }
 
+
+        [TestMethod]
+        public void WhereRefersTo1()
+        {
+            var lite = (Lite<BandEntity>)null;
+
+            var first = Database.Query<BandEntity>().Where(b => lite.RefersTo(b)).FirstOrDefault();
+
+            Assert.AreEqual(null, first);
+        }
+
+        [TestMethod]
+        public void WhereRefersTo2()
+        {
+            var entity = (BandEntity)null;
+
+            var first = Database.Query<BandEntity>().Where(b => b.ToLite().RefersTo(entity)).FirstOrDefault();
+
+            Assert.AreEqual(null, first);
+        }
+
         [TestMethod]
         public void WhereCase()
         {
@@ -242,6 +263,26 @@ namespace Signum.Test.LinqProvider
 
             var female = Database.Query<ArtistEntity>().SingleEx(a => females.Contains(a));
         }
+
+        [TestMethod]
+        public void WhereEnumToString()
+        {
+            var females = Database.Query<ArtistEntity>().Count(a => a.Sex.ToString() == Sex.Female.ToString());
+            var females2 = Database.Query<ArtistEntity>().Count(a => a.Sex == Sex.Female);
+            Assert.AreEqual(females, females2);
+
+            var bla = Database.Query<ArtistEntity>().Count(a => a.Sex.ToString() == a.Name);
+            Assert.AreEqual(bla, 0);
+        }
+
+        [TestMethod]
+        public void WhereNullableEnumToString()
+        {
+            var females = Database.Query<ArtistEntity>().Count(a => a.Status.ToString() == Status.Married.ToString());
+            var females2 = Database.Query<ArtistEntity>().Count(a => a.Status == Status.Married);
+            Assert.AreEqual(females, females2);
+        }
+
 
         [TestMethod]
         public void WhereEmbeddedNull()
@@ -375,7 +416,7 @@ namespace Signum.Test.LinqProvider
 
             var count = Database.Query<BandEntity>().Count(a => a.LastAward == award);
 
-            Assert.AreEqual(0, count); 
+            Assert.AreEqual(0, count);
         }
 
 
@@ -399,6 +440,43 @@ namespace Signum.Test.LinqProvider
             Assert.AreEqual(0, count);
         }
 
+        [TestMethod]
+        public void WhereCount()
+        {
+            var album = Database.Query<ArtistEntity>()
+                .Where(a => Database.Query<AlbumEntity>().Where(al => al.Author.Is(a)).Count() > 0)
+                .Select(a => a.Name)
+                .ToList();
+        }
 
+
+        [TestMethod]
+        public void WhereFormat()
+        {
+            var album = Database.Query<ArtistEntity>()
+                .Where(a => $"Hi {(a.IsMale ? "Mr." : "Ms.")} {a}".Contains("Mr. Michael"))
+                .Select(a => a.ToLite())
+                .ToList();
+        }
+
+
+        [TestMethod]
+        public void WhereFormat4()
+        {
+            var album = Database.Query<ArtistEntity>()
+                .Where(a => $"Hi {a.Name} {a.Name} {a.Name} {a.Name}".Contains("Mr. Michael"))
+                .Select(a => a.ToLite())
+                .ToList();
+        }
+
+
+        [TestMethod]
+        public void WhereNoFormat()
+        {
+            var album = Database.Query<ArtistEntity>()
+                .Where(a => ("Hi " + (a.IsMale ? "Mr." : "Ms.") + " " + a.Name + " ToStr " + a).Contains("Mr. Michael"))
+                .Select(a => a.ToLite())
+                .ToList();
+        }
     }
 }

@@ -15,6 +15,8 @@ using System.Linq.Expressions;
 using Signum.Utilities.ExpressionTrees;
 using Microsoft.SqlServer.Types;
 using Microsoft.SqlServer.Server;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Signum.Engine
 {
@@ -24,6 +26,7 @@ namespace Signum.Engine
         SqlServer2008,
         SqlServer2012,
         SqlServer2014,
+        SqlServer2016,
         AzureSQL,
     }
 
@@ -119,7 +122,7 @@ namespace Signum.Engine
         {
             using (SqlConnection con = EnsureConnection())
             using (SqlCommand cmd = NewCommand(preCommand, con, commandType))
-            using (HeavyProfiler.Log("SQL", () => preCommand.PlainSql()))
+            using (HeavyProfiler.Log("SQL", () => preCommand.sp_executesql()))
             {
                 try
                 {
@@ -145,7 +148,7 @@ namespace Signum.Engine
         {
             using (SqlConnection con = EnsureConnection())
             using (SqlCommand cmd = NewCommand(preCommand, con, commandType))
-            using (HeavyProfiler.Log("SQL", () => preCommand.PlainSql()))
+            using (HeavyProfiler.Log("SQL", () => preCommand.sp_executesql()))
             {
                 try
                 {
@@ -172,7 +175,7 @@ namespace Signum.Engine
                 using (SqlConnection con = EnsureConnection())
                 using (SqlCommand cmd = NewCommand(preCommand, con, commandType))
                 using (HeavyProfiler.Log("SQL-Dependency"))
-                using (HeavyProfiler.Log("SQL", () => preCommand.PlainSql()))
+                using (HeavyProfiler.Log("SQL", () => preCommand.sp_executesql()))
                 {
                     try
                     {
@@ -246,11 +249,29 @@ namespace Signum.Engine
             }
         }
 
+        protected internal override async Task<DbDataReader> UnsafeExecuteDataReaderAsync(SqlPreCommandSimple preCommand, CommandType commandType, CancellationToken token)
+        {
+            try
+            {
+                SqlCommand cmd = NewCommand(preCommand, null, commandType);
+
+                return await cmd.ExecuteReaderAsync(token);
+            }
+            catch (Exception ex)
+            {
+                var nex = HandleException(ex, preCommand);
+                if (nex == ex)
+                    throw;
+
+                throw nex;
+            }
+        }
+
         protected internal override DataTable ExecuteDataTable(SqlPreCommandSimple preCommand, CommandType commandType)
         {
             using (SqlConnection con = EnsureConnection())
             using (SqlCommand cmd = NewCommand(preCommand, con, commandType))
-            using (HeavyProfiler.Log("SQL", () => preCommand.PlainSql()))
+            using (HeavyProfiler.Log("SQL", () => preCommand.sp_executesql()))
             {
                 try
                 {
@@ -275,7 +296,7 @@ namespace Signum.Engine
         {
             using (SqlConnection con = EnsureConnection())
             using (SqlCommand cmd = NewCommand(preCommand, con, commandType))
-            using (HeavyProfiler.Log("SQL", () => preCommand.PlainSql()))
+            using (HeavyProfiler.Log("SQL", () => preCommand.sp_executesql()))
             {
                 try
                 {
@@ -298,14 +319,13 @@ namespace Signum.Engine
         public Exception HandleException(Exception ex, SqlPreCommandSimple command)
         {
             var nex = ReplaceException(ex, command);
-            nex.Data["Sql"] = command.PlainSql();
+            nex.Data["Sql"] = command.sp_executesql();
             return nex;
         }
 
         Exception ReplaceException(Exception ex, SqlPreCommandSimple command)
         {
-            var se = ex as SqlException;
-            if (se != null)
+            if (ex is SqlException se)
             {
                 switch (se.Number)
                 {
@@ -316,8 +336,7 @@ namespace Signum.Engine
                 }
             }
 
-            var ste = ex as SqlTypeException;
-            if (ste != null && ex.Message.Contains("DateTime"))
+            if (ex is SqlTypeException ste && ex.Message.Contains("DateTime"))
             {
                 var mins = command.Parameters.Where(a => DateTime.MinValue.Equals(a.Value));
 
@@ -342,8 +361,7 @@ namespace Signum.Engine
                 options.HasFlag(SqlBulkCopyOptions.UseInternalTransaction) ? null : (SqlTransaction)Transaction.CurrentTransaccion))
             using (HeavyProfiler.Log("SQL", () => destinationTable.ToString() + " Rows:" + dt.Rows.Count))
             {
-                if (timeout.HasValue)
-                    bulkCopy.BulkCopyTimeout = timeout.Value;
+                bulkCopy.BulkCopyTimeout = timeout ?? Connector.ScopeTimeout ?? this.CommandTimeout ?? bulkCopy.BulkCopyTimeout;
 
                 foreach (DataColumn c in dt.Columns)
                     bulkCopy.ColumnMappings.Add(new SqlBulkCopyColumnMapping(c.ColumnName, c.ColumnName));
@@ -412,19 +430,14 @@ namespace Signum.Engine
 
         private static string Replace(string connectionString, DatabaseName item)
         {
-            var csb = new SqlConnectionStringBuilder(connectionString);
-            csb.InitialCatalog = item.ToString();
+            var csb = new SqlConnectionStringBuilder(connectionString)
+            {
+                InitialCatalog = item.ToString()
+            };
             return csb.ToString();
         }
 
-        public override bool AllowsSetSnapshotIsolation
-        {
-            get { return this.Version == SqlServerVersion.SqlServer2008; }
-        }
-
-        public override void FixType(ref SqlDbType type, ref int? size, ref int? scale)
-        {
-        }
+        public override bool AllowsSetSnapshotIsolation => this.Version >= SqlServerVersion.SqlServer2008;
 
         public override bool AllowsIndexWithWhere(string Where)
         {
@@ -433,7 +446,7 @@ namespace Signum.Engine
 
         public static List<string> ComplexWhereKeywords = new List<string> { "OR" };
 
-        public override SqlPreCommand ShringDatabase(string schemaName)
+        public override SqlPreCommand ShrinkDatabase(string schemaName)
         {
             return new[]
             {
@@ -467,6 +480,18 @@ namespace Signum.Engine
         {
             get { return Version != SqlServerVersion.AzureSQL && Version >= SqlServerVersion.SqlServer2008; }
         }
+
+        public override bool SupportsFormat
+        {
+            get { return  Version >= SqlServerVersion.SqlServer2012; }
+        }
+
+        public override bool SupportsTemporalTables
+        {
+            get { return Version >= SqlServerVersion.SqlServer2016; }
+        }
+
+        public override string ToString() => $"SqlConnector({Version})";
     }
 
     public class SqlParameterBuilder : ParameterBuilder
@@ -476,7 +501,7 @@ namespace Signum.Engine
             if (IsDate(sqlType))
                 AssertDateTime((DateTime?)value);
 
-            var result = new SqlParameter(parameterName, value == null ? DBNull.Value : value)
+            var result = new SqlParameter(parameterName, value ?? DBNull.Value)
             {
                 IsNullable = nullable
             };
@@ -492,7 +517,7 @@ namespace Signum.Engine
 
         public override MemberInitExpression ParameterFactory(Expression parameterName, SqlDbType sqlType, string udtTypeName, bool nullable, Expression value)
         {
-            Expression valueExpr = Expression.Convert(IsDate(sqlType) ? Expression.Call(miAsserDateTime, value.Nullify()) : value, typeof(object));
+            Expression valueExpr = Expression.Convert(IsDate(sqlType) ? Expression.Call(miAsserDateTime, Expression.Convert(value, typeof(DateTime?))) : value, typeof(object));
 
             if (nullable)
                 valueExpr = Expression.Condition(Expression.Equal(value, Expression.Constant(null, value.Type)),
@@ -610,7 +635,23 @@ open cur
 close cur 
 deallocate cur";
 
-
+        public static readonly string StopSystemVersioning = @"declare @schema nvarchar(128), @tbl nvarchar(128)
+DECLARE @sql nvarchar(255)
+ 
+declare cur cursor fast_forward for 
+select distinct s.name, t.name
+from sys.tables t
+join sys.schemas s on t.schema_id = s.schema_id where history_table_id is not null
+open cur 
+    fetch next from cur into @schema, @tbl
+    while @@fetch_status <> -1 
+    begin 
+        select @sql = 'ALTER TABLE [' + @schema + '].[' + @tbl + '] SET (SYSTEM_VERSIONING = OFF);'
+        exec sp_executesql @sql 
+        fetch next from cur into @schema, @tbl
+    end 
+close cur 
+deallocate cur";
 
         public static SqlPreCommand RemoveAllScript(DatabaseName databaseName)
         {
@@ -620,6 +661,7 @@ deallocate cur";
                 new SqlPreCommandSimple(Use(databaseName, RemoveAllProceduresScript)),
                 new SqlPreCommandSimple(Use(databaseName, RemoveAllViewsScript)),
                 new SqlPreCommandSimple(Use(databaseName, RemoveAllConstraintsScript)),
+                Connector.Current.SupportsTemporalTables ? new SqlPreCommandSimple(Use(databaseName, StopSystemVersioning)) : null,
                 new SqlPreCommandSimple(Use(databaseName, RemoveAllTablesScript)),
                 new SqlPreCommandSimple(Use(databaseName, RemoveAllSchemasScript.FormatWith(schemas)))
                 );
@@ -635,7 +677,7 @@ deallocate cur";
 
         internal static SqlPreCommand ShrinkDatabase(string schemaName)
         {
-            return Connector.Current.ShringDatabase(schemaName);
+            return Connector.Current.ShrinkDatabase(schemaName);
 
         }
     }

@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Linq;
 using Signum.Utilities;
 using System.Diagnostics;
+using Signum.Utilities.ExpressionTrees;
 
 namespace Signum.Utilities.DataStructures
 {
@@ -137,14 +138,20 @@ namespace Signum.Utilities.DataStructures
             {
                 int index = PossibleIndex(key);
                 if (index == -1)
-                    throw new KeyNotFoundException("No interval found");
+                    throw new KeyNotFoundException("No interval found in {0}".FormatWith(this.GetType().TypeName()));
 
                 if (dic.Keys[index].Contains(key))
                     return dic.Values[index];
 
-                throw new KeyNotFoundException("No interval found");
+                throw new KeyNotFoundException("No interval found in {0}".FormatWith(this.GetType().TypeName()));
             }
             
+        }
+
+        public V TryGet(K key, V defaultValue)
+        {
+            this.TryGetValue(key, out defaultValue);
+            return defaultValue;
         }
 
         public bool TryGetValue(K key, out V value)
@@ -168,8 +175,7 @@ namespace Signum.Utilities.DataStructures
 
         public IntervalValue<V> TryGetValue(K key)
         {
-            V val;
-            if(TryGetValue(key, out val))
+            if (TryGetValue(key, out V val))
                 return new IntervalValue<V>(val);
 
             return new IntervalValue<V>();
@@ -297,11 +303,11 @@ namespace Signum.Utilities.DataStructures
             return new IntervalDictionary<K, VR>(keys.Select(k => KVP.Create(k, mixer(k, collection.Select(intDic => intDic.TryGetValue(k.Min)).Where(vi => vi.HasInterval).Select(vi => vi.Value)))));
         }
 
-        public static IntervalDictionary<K, VR> AggregateIntervalDictionary<K, V, VR>(this IEnumerable<Tuple<Interval<K>, V>> collection, Func<Interval<K>, IEnumerable<V>, VR> mixer)
+        public static IntervalDictionary<K, VR> AggregateIntervalDictionary<K, V, VR>(this IEnumerable<(Interval<K> interval, V value)> collection, Func<Interval<K>, IEnumerable<V>, VR> mixer)
            where K : struct, IComparable<K>, IEquatable<K>
         {
-            Interval<K>[] keys = collection.SelectMany(a => a.Item1.Elements()).Distinct().OrderBy().BiSelect((min, max) => new Interval<K>(min, max)).ToArray();
-            return new IntervalDictionary<K, VR>(keys.Select(k => KVP.Create(k, mixer(k, collection.Where(a => a.Item1.Subset(k)).Select(a => a.Item2)))));
+            Interval<K>[] keys = collection.SelectMany(a => a.interval.Elements()).Distinct().OrderBy().BiSelect((min, max) => new Interval<K>(min, max)).ToArray();
+            return new IntervalDictionary<K, VR>(keys.Select(k => KVP.Create(k, mixer(k, collection.Where(a => a.interval.Subset(k)).Select(a => a.value)))));
         }
 
         public static IntervalDictionary<K, VR> Filter<K, V, VR>(this IntervalDictionary<K, V> me, Interval<K> filter, Func<Interval<K>, V, VR> mapper)
@@ -310,7 +316,7 @@ namespace Signum.Utilities.DataStructures
             IntervalDictionary<K, VR> result  = new IntervalDictionary<K,VR>(); 
             foreach (var item in me)
 	        {
-                var intersection = item.Key.Intersection(filter);
+                var intersection = item.Key.TryIntersection(filter);
                 if(intersection != null)
                     result.Add(intersection.Value, mapper(intersection.Value, item.Value)); 
 	        }

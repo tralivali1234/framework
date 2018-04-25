@@ -188,7 +188,10 @@ namespace Signum.Web
             if (objType.IsLite() && type.IsAssignableFrom(((Lite<IEntity>)obj).EntityType))
             {
                 Lite<IEntity> lite = (Lite<IEntity>)obj;
-                return lite.UntypedEntityOrNull ?? Database.RetrieveAndForget(lite);
+          
+
+                //return lite.UntypedEntityOrNull ?? Database.RetrieveAndForget(lite);
+                return lite.EntityOrNull ?? Database.RetrieveAndForget(lite);
             }
 
             if (type.IsLite())
@@ -200,7 +203,7 @@ namespace Signum.Web
                 }
             }
 
-            throw new InvalidCastException("Impossible to convert objet {0} from type {1} to type {2}".FormatWith(obj, objType, type));
+            throw new InvalidCastException("Impossible to convert object '{0}' from type '{1}' to type '{2}'".FormatWith(obj, objType.TypeName(), type.TypeName()));
         }
     }
 }

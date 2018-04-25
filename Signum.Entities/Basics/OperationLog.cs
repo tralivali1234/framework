@@ -8,7 +8,7 @@ using Signum.Utilities.ExpressionTrees;
 
 namespace Signum.Entities.Basics
 {
-    [Serializable, EntityKind(EntityKind.System, EntityData.Transactional), TicksColumn(false)]
+    [Serializable, EntityKind(EntityKind.System, EntityData.Transactional), TicksColumn(false), InTypeScript(Undefined = false)]
     public class OperationLogEntity : Entity
     {
         [ImplementedByAll]
@@ -16,11 +16,11 @@ namespace Signum.Entities.Basics
 
         [ImplementedByAll]
         public Lite<IEntity> Origin { get; set; }
-        [NotNullValidator]
 
+        [NotNullValidator]
         public OperationSymbol Operation { get; set; }
-        [NotNullValidator]
 
+        [NotNullValidator]
         public Lite<IUserEntity> User { get; set; }
 
         public DateTime Start { get; set; }
@@ -29,7 +29,7 @@ namespace Signum.Entities.Basics
 
         static Expression<Func<OperationLogEntity, double?>> DurationExpression =
             log => (double?)(log.End - log.Start).Value.TotalMilliseconds;
-        [ExpressionField("DurationExpression")]
+        [ExpressionField("DurationExpression"), Unit("ms")]
         public double? Duration
         {
             get { return End == null ? null : DurationExpression.Evaluate(this); }
@@ -56,4 +56,6 @@ namespace Signum.Entities.Basics
         [Ignore]
         IEntity TemporalTarget;
     }
+
+ 
 }

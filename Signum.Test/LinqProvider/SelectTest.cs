@@ -149,6 +149,7 @@ namespace Signum.Test.LinqProvider
                         select (l.Owner == null ? l : l.Owner.Entity).ToLite()).ToList();
         }
 
+#pragma warning disable IDE0029 // Use coalesce expression
         [TestMethod]
         public void SelectConditionalToLiteNull()
         {
@@ -156,6 +157,7 @@ namespace Signum.Test.LinqProvider
                         let owner = (l.Owner == null ? null : l.Owner).Entity
                         select owner.ToLite(owner.Name)).ToList();
         }
+#pragma warning restore IDE0029 // Use coalesce expression
 
         [TestMethod]
         public void SelectConditionalGetType()
@@ -652,6 +654,14 @@ namespace Signum.Test.LinqProvider
             Expression<Func<AlbumEntity, double>> selectorDouble = Expression.Lambda<Func<AlbumEntity, double>>(Expression.Convert(selector.Body, typeof(double)), selector.Parameters.SingleEx());
 
             var list = Database.Query<AlbumEntity>().Average(selectorDouble);
+        }
+
+        [TestMethod]
+        public void SelectVirtualMListNoDistinct()
+        {
+            var list = Database.Query<ArtistEntity>().ToList();
+
+            Assert.IsTrue(!Database.Query<ArtistEntity>().QueryText().Contains("DISTINCT"));
         }
     }
 

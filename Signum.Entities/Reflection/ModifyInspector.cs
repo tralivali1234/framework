@@ -13,7 +13,6 @@ namespace Signum.Entities.Reflection
 {
     public class ModifyInspector
     {
-        //dicconario con los field info con posibles modificables de los modificables normales
         static Dictionary<Type, Func<object, object>[]> getterCache = new Dictionary<Type, Func<object, object>[]>();
 
         static Func<object, object>[] ModifiableFieldGetters(Type type)
@@ -27,21 +26,34 @@ namespace Signum.Entities.Reflection
                 });
         }
 
+        static Dictionary<Type, Func<object, object>[]> getterVirtualCache = new Dictionary<Type, Func<object, object>[]>();
+
+        static Func<object, object>[] ModifiableFieldGettersVirtual(Type type)
+        {
+            lock (getterVirtualCache)
+                return getterVirtualCache.GetOrCreate(type, () =>
+                {
+                    FieldInfo[] aux = Reflector.InstanceFieldsInOrder(type);
+                    return aux.Where(fi => Reflector.IsModifiableIdentifiableOrLite(fi.FieldType) && (!IsIgnored(fi) || IsQueryableProperty(fi)))
+                        .Select(fi => ReflectionTools.CreateGetterUntyped(type, fi)).ToArray();
+                });
+        }
+
         private static bool IsIgnored(FieldInfo fi)
         {
             return fi.HasAttribute<IgnoreAttribute>() ||
-                (Reflector.FindPropertyInfo(fi)?.HasAttribute<IgnoreAttribute>() ?? false);
+                (Reflector.FindPropertyInfo(fi).HasAttribute<IgnoreAttribute>());
+        }
+
+        private static bool IsQueryableProperty(FieldInfo fi)
+        {
+            return (Reflector.TryFindPropertyInfo(fi)?.HasAttribute<QueryablePropertyAttribute>() ?? false);
         }
 
 
-        /// <summary>
-        /// Devuelve todos los Modificables que haya dentro de obj
-        /// </summary>
-        /// <param name="obj"></param>
-        /// <returns></returns>
         public static IEnumerable<Modifiable> FullExplore(Modifiable obj)
         {
-            if (obj == null)//|| obj is Lite)
+            if (obj == null)
                 yield break;
 
             if (Reflector.IsMList(obj.GetType()))
@@ -67,8 +79,7 @@ namespace Signum.Entities.Reflection
                     yield return (Modifiable)field;
                 }
 
-                Entity ident = obj as Entity;
-                if (ident != null)
+                if (obj is Entity ident)
                 {
                     foreach (var mixin in ident.Mixins)
                     {
@@ -78,7 +89,45 @@ namespace Signum.Entities.Reflection
             }
         }
 
-        public static IEnumerable<Modifiable> IdentifiableExplore(Modifiable obj)
+        public static IEnumerable<Modifiable> FullExploreVirtual(Modifiable obj)
+        {
+            if (obj == null)
+                yield break;
+
+            if (Reflector.IsMList(obj.GetType()))
+            {
+                Type t = obj.GetType().ElementType();
+                if (Reflector.IsModifiableIdentifiableOrLite(t))
+                {
+                    IEnumerable col = obj as IEnumerable;
+                    foreach (Modifiable item in col)
+                        if (item != null)
+                            yield return item;
+                }
+            }
+            else
+            {
+                foreach (Func<object, object> getter in ModifiableFieldGettersVirtual(obj.GetType()))
+                {
+                    object field = getter(obj);
+
+                    if (field == null)
+                        continue;
+
+                    yield return (Modifiable)field;
+                }
+
+                if (obj is Entity ident)
+                {
+                    foreach (var mixin in ident.Mixins)
+                    {
+                        yield return mixin;
+                    }
+                }
+            }
+        }
+
+        public static IEnumerable<Modifiable> EntityExplore(Modifiable obj)
         {
             if (obj == null)//|| obj is Lite)
                 yield break;
@@ -107,8 +156,7 @@ namespace Signum.Entities.Reflection
                     yield return (Modifiable)field;
                 }
 
-                Entity ident = obj as Entity;
-                if (ident != null)
+                if (obj is Entity ident)
                 {
                     foreach (var mixin in ident.Mixins)
                     {

@@ -1,12 +1,8 @@
-﻿using System;
+﻿using Signum.Engine.Maps;
+using Signum.Utilities;
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using Signum.Utilities;
-using Signum.Utilities.ExpressionTrees;
-using Signum.Engine.Maps;
-using Signum.Utilities.DataStructures;
-using Signum.Entities;
 
 namespace Signum.Engine
 {
@@ -18,48 +14,75 @@ namespace Signum.Engine
           Action<K, N> createNew,
           Action<K, O> removeOld,
           Action<K, N, O> merge)
-            where O : class
-            where N : class
         {
             HashSet<K> keys = new HashSet<K>();
             keys.UnionWith(oldDictionary.Keys);
             keys.UnionWith(newDictionary.Keys);
+
             foreach (var key in keys)
             {
-                var oldVal = oldDictionary.TryGetC(key);
-                var newVal = newDictionary.TryGetC(key);
+                var oldExists = oldDictionary.TryGetValue(key, out var oldVal);
+                var newExists = newDictionary.TryGetValue(key, out var newVal);
 
-                if (oldVal == null)
+                if (!oldExists)
                 {
-                    if (createNew != null) 
-                        createNew(key, newVal);
+                    createNew?.Invoke(key, newVal);
                 }
-                else if (newVal == null)
+                else if (!newExists)
                 {
-                    if (removeOld != null) 
-                        removeOld(key, oldVal);
+                    removeOld?.Invoke(key, oldVal);
                 }
                 else
                 {
-                    if (merge != null) 
-                        merge(key, newVal, oldVal);
+                    merge?.Invoke(key, newVal, oldVal);
                 }
             }
         }
 
+        public static void SynchronizeProgressForeach<K, N, O>(
+          Dictionary<K, N> newDictionary,
+          Dictionary<K, O> oldDictionary,
+          Action<K, N> createNew,
+          Action<K, O> removeOld,
+          Action<K, N, O> merge,
+          bool showProgress = true,
+          bool transactional = true)
+        {
+            HashSet<K> keys = new HashSet<K>();
+            keys.UnionWith(oldDictionary.Keys);
+            keys.UnionWith(newDictionary.Keys);
+            keys.ProgressForeach(key => key.ToString(), key =>
+            {
+                if (oldDictionary.TryGetValue(key, out var oldVal))
+                {
+                    if (newDictionary.TryGetValue(key, out var newVal))
+                        merge?.Invoke(key, newVal, oldVal);
+                    else
+                        removeOld?.Invoke(key, oldVal);
+                }
+                else
+                {
+                    if (newDictionary.TryGetValue(key, out var newVal))
+                        createNew?.Invoke(key, newVal);
+                    else
+                        throw new InvalidOperationException("Unexpected key: " + key);
+                }
+            }, 
+            showProgress: showProgress, 
+            transactional: transactional);
+        }
+
         public static void SynchronizeReplacing<N, O>(
           Replacements replacements,
-          string replacementsKey, 
+          string replacementsKey,
           Dictionary<string, N> newDictionary,
           Dictionary<string, O> oldDictionary,
           Action<string, N> createNew,
           Action<string, O> removeOld,
           Action<string, N, O> merge)
-            where O : class
-            where N : class
         {
             replacements.AskForReplacements(
-                oldDictionary.Keys.ToHashSet(), 
+                oldDictionary.Keys.ToHashSet(),
                 newDictionary.Keys.ToHashSet(), replacementsKey);
 
             var repOldDictionary = replacements.ApplyReplacementsToOld(oldDictionary, replacementsKey);
@@ -69,33 +92,30 @@ namespace Signum.Engine
             set.UnionWith(newDictionary.Keys);
             foreach (var key in set)
             {
-                var oldVal = repOldDictionary.TryGetC(key);
-                var newVal = newDictionary.TryGetC(key);
-
-                if (oldVal == null)
+                if (repOldDictionary.TryGetValue(key, out var oldVal))
                 {
-                    if (createNew != null)
-                        createNew(key, newVal);
-                }
-                else if (newVal == null)
-                {
-                    if (removeOld != null)
-                        removeOld(key, oldVal);
+                    if (newDictionary.TryGetValue(key, out var newVal))
+                        merge?.Invoke(key, newVal, oldVal);
+                    else
+                        removeOld?.Invoke(key, oldVal);
                 }
                 else
                 {
-                    if (merge != null)
-                        merge(key, newVal, oldVal);
+                    if (newDictionary.TryGetValue(key, out var newVal))
+                        createNew?.Invoke(key, newVal);
+                    else
+                        throw new InvalidOperationException("Unexpected key: " + key);
                 }
             }
         }
 
         public static SqlPreCommand SynchronizeScript<K, N, O>(
-            Dictionary<K, N> newDictionary, 
-            Dictionary<K, O> oldDictionary, 
-            Func<K, N, SqlPreCommand> createNew, 
+            Spacing spacing,
+            Dictionary<K, N> newDictionary,
+            Dictionary<K, O> oldDictionary,
+            Func<K, N, SqlPreCommand> createNew,
             Func<K, O, SqlPreCommand> removeOld,
-            Func<K, N, O, SqlPreCommand> merge, Spacing spacing)
+            Func<K, N, O, SqlPreCommand> mergeBoth)
             where O : class
             where N : class
         {
@@ -107,31 +127,31 @@ namespace Signum.Engine
                 if (oldVal == null)
                     return createNew == null ? null : createNew(key, newVal);
 
-                return merge == null ? null : merge(key, newVal, oldVal);
+                return mergeBoth == null ? null : mergeBoth(key, newVal, oldVal);
             }).Values.Combine(spacing);
         }
 
-      
+
 
         public static SqlPreCommand SynchronizeScriptReplacing<N, O>(
-            Replacements replacements, 
-            string replacementsKey, 
-            Dictionary<string, N> newDictionary, 
-            Dictionary<string, O> oldDictionary, 
-            Func<string, N, SqlPreCommand> createNew, 
-            Func<string, O, SqlPreCommand> removeOld, 
-            Func<string, N, O, SqlPreCommand> merge, 
-            Spacing spacing)
+            Replacements replacements,
+            string replacementsKey,
+            Spacing spacing,
+            Dictionary<string, N> newDictionary,
+            Dictionary<string, O> oldDictionary,
+            Func<string, N, SqlPreCommand> createNew,
+            Func<string, O, SqlPreCommand> removeOld,
+            Func<string, N, O, SqlPreCommand> mergeBoth)
             where O : class
             where N : class
         {
             replacements.AskForReplacements(
-                oldDictionary.Keys.ToHashSet(), 
+                oldDictionary.Keys.ToHashSet(),
                 newDictionary.Keys.ToHashSet(), replacementsKey);
 
             var repOldDictionary = replacements.ApplyReplacementsToOld(oldDictionary, replacementsKey);
 
-            return SynchronizeScript(newDictionary, repOldDictionary, createNew, removeOld, merge, spacing);
+            return SynchronizeScript(spacing, newDictionary, repOldDictionary, createNew, removeOld, mergeBoth);
         }
 
         public static IDisposable RenameTable(Table table, Replacements replacements)
@@ -168,7 +188,7 @@ namespace Signum.Engine
 
         public IDisposable WithReplacedDatabaseName()
         {
-            if(ReplaceDatabaseName == null)
+            if (ReplaceDatabaseName == null)
                 return null;
 
             return ObjectName.OverrideOptions(new ObjectNameOptions { DatabaseNameReplacement = ReplaceDatabaseName });
@@ -212,6 +232,22 @@ namespace Signum.Engine
             if (oldOnly.Count == 0 || newOnly.Count == 0)
                 return;
 
+            Dictionary<string, string> replacements = this.TryGetC(replacementsKey) ?? new Dictionary<string, string>();
+
+            if (replacements.Any())
+            {
+                var toRemove = replacements.Where(a => oldOnly.Contains(a.Key) && newOnly.Contains(a.Value)).ToList();
+                foreach (var kvp in toRemove)
+                {
+                    oldOnly.Remove(kvp.Key);
+                    newOnly.Remove(kvp.Value);
+                }                
+            }
+
+
+            if (oldOnly.Count == 0 || newOnly.Count == 0)
+                return;
+
             StringDistance sd = new StringDistance();
 
             Dictionary<string, Dictionary<string, float>> distances = oldOnly.ToDictionary(o => o, o => newOnly.ToDictionary(n => n, n =>
@@ -219,11 +255,11 @@ namespace Signum.Engine
                 return Distance(sd, o, n);
             }));
 
-            Dictionary<string, string> replacements = new Dictionary<string, string>();
+            new Dictionary<string, string>();
 
             while (oldOnly.Count > 0 && newOnly.Count > 0)
             {
-                var old = distances.WithMin(kvp=>kvp.Value.Values.Min());
+                var old = distances.WithMin(kvp => kvp.Value.Values.Min());
 
                 Selection selection = SelectInteractive(old.Key, old.Value.OrderBy(a => a.Value).Select(a => a.Key).ToList(), replacementsKey, Interactive);
 
@@ -241,7 +277,7 @@ namespace Signum.Engine
                 }
             }
 
-            if (replacements.Count != 0)
+            if (replacements.Count != 0 && !this.ContainsKey(replacementsKey))
                 this.GetOrCreate(replacementsKey).SetRange(replacements);
         }
 
@@ -272,13 +308,25 @@ namespace Signum.Engine
             return sel.NewValue;
         }
 
-        public static Func<string, List<string>, Selection?> AutoReplacement; 
+        public class AutoReplacementContext
+        {
+            public string ReplacementKey;
+            public string OldValue;
+            public List<string> NewValues;
+        }
+
+        public static Func<AutoReplacementContext, Selection?> AutoReplacement;
 
         private static Selection SelectInteractive(string oldValue, List<string> newValues, string replacementsKey, bool interactive)
         {
             if (AutoReplacement != null)
             {
-                Selection? selection = AutoReplacement(oldValue, newValues);
+                Selection? selection = AutoReplacement(new AutoReplacementContext
+                {
+                    ReplacementKey = replacementsKey,
+                    OldValue = oldValue,
+                    NewValues = newValues
+                });
                 if (selection != null)
                 {
                     SafeConsole.WriteLineColor(ConsoleColor.DarkGray, "AutoReplacement:");
@@ -289,29 +337,42 @@ namespace Signum.Engine
             }
 
             if (!interactive)
-                throw new InvalidOperationException("Impossible to synchronize {0} without interactive Console".FormatWith(replacementsKey));
+                throw new InvalidOperationException("Impossible to synchronize {0} without interactive Console. Consider running the Load project.".FormatWith(replacementsKey));
 
             int startingIndex = 0;
-
-            Console.WriteLine(SynchronizerMessage._0HasBeenRenamedIn1.NiceToString().FormatWith(oldValue, replacementsKey));
-        retry:
+            Console.WriteLine();
+            SafeConsole.WriteLineColor(ConsoleColor.White, "   '{0}' has been renamed in {1}?".FormatWith(oldValue, replacementsKey));
+            retry:
             int maxElement = Console.LargestWindowHeight - 7;
 
-        newValues.Skip(startingIndex).Take(maxElement)
-                .Select((s, i) => "-{0}{1,2}: {2} ".FormatWith(i + startingIndex == 0 ? ">" : " ", i + startingIndex, s)).ToConsole();
-            Console.WriteLine();
+            int i = 0;
+            foreach (var v in newValues.Skip(startingIndex).Take(maxElement).ToList())
+            {
+                SafeConsole.WriteColor(ConsoleColor.White, "{0,2}: ", i);
+                SafeConsole.WriteColor(ConsoleColor.Gray, v);
+                if (i == 0)
+                    SafeConsole.WriteColor(ConsoleColor.White, " (hit [Enter])");
+                Console.WriteLine();
+                i++;
+            }
 
-            Console.WriteLine(SynchronizerMessage.NNone.NiceToString());
+            SafeConsole.WriteColor(ConsoleColor.White, " n: ", i);
+            SafeConsole.WriteColor(ConsoleColor.Gray, "No rename, '{0}' was removed", oldValue);
+            Console.WriteLine();
 
             int remaining = newValues.Count - startingIndex - maxElement;
             if (remaining > 0)
-                SafeConsole.WriteLineColor(ConsoleColor.White, "- +: Show more values ({0} remaining)", remaining);
+            {
+                SafeConsole.WriteColor(ConsoleColor.White, " +: ", i);
+                SafeConsole.WriteColor(ConsoleColor.Gray, "Show more values ({0} remaining)", remaining);
+                Console.WriteLine();
+            }
 
             while (true)
             {
                 string answer = Console.ReadLine();
-                
-                 answer= answer.ToLower();
+
+                answer = answer.ToLower();
 
                 if (answer == "+" && remaining > 0)
                 {
@@ -324,11 +385,12 @@ namespace Signum.Engine
                 if (answer == "")
                     return new Selection(oldValue, newValues[0]);
 
-                int option = 0;
-                if (int.TryParse(answer, out option))
+                if (int.TryParse(answer, out int option))
                     return new Selection(oldValue, newValues[option]);
 
                 Console.WriteLine("Error");
+
+
             }
         }
 

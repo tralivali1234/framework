@@ -27,7 +27,7 @@ namespace Signum.Entities.DynamicQuery
         {
             this.token = token;
             this.operation = operation;
-            this.value = ReflectionTools.ChangeType(value, operation == FilterOperation.IsIn ? typeof(IEnumerable<>).MakeGenericType(Token.Type.Nullify()) : Token.Type);
+            this.value = ReflectionTools.ChangeType(value, operation.IsList() ? typeof(IEnumerable<>).MakeGenericType(Token.Type.Nullify()) : Token.Type);
         }
 
         static MethodInfo miContainsEnumerable = ReflectionTools.GetMethodInfo((IEnumerable<int> s) => s.Contains(2)).GetGenericMethodDefinition();
@@ -66,7 +66,7 @@ namespace Signum.Entities.DynamicQuery
         {
             Expression left = Token.BuildExpression(context);
 
-            if (Operation == FilterOperation.IsIn)
+            if (Operation.IsList())
             {
                 if (Value == null)
                     return Expression.Constant(false);
@@ -99,10 +99,18 @@ namespace Signum.Entities.DynamicQuery
                 Expression right = Expression.Constant(clone, typeof(IEnumerable<>).MakeGenericType(Token.Type.Nullify()));
                 var contains =  Expression.Call(miContainsEnumerable.MakeGenericMethod(Token.Type.Nullify()), right, left.Nullify());
 
-                if (!hasNull || token.Type == typeof(string))
-                    return contains;
 
-                return Expression.Or(Expression.Equal(left, Expression.Constant(null, Token.Type.Nullify())), contains);
+                var result = !hasNull || token.Type == typeof(string) ? (Expression)contains :
+                        Expression.Or(Expression.Equal(left, Expression.Constant(null, Token.Type.Nullify())), contains);
+
+
+                if (Operation == FilterOperation.IsIn)
+                    return result;
+
+                if (Operation == FilterOperation.IsNotIn)
+                    return Expression.Not(result);
+
+                throw new InvalidOperationException("Unexpected operation");
             }
             else
             {
@@ -126,6 +134,7 @@ namespace Signum.Entities.DynamicQuery
         }
     }
 
+    [InTypeScript(true), DescriptionOptions(DescriptionOptions.Members | DescriptionOptions.Description)]
     public enum FilterOperation
     {
         EqualTo,
@@ -143,8 +152,10 @@ namespace Signum.Entities.DynamicQuery
         NotEndsWith,
         NotLike,
         IsIn,
+        IsNotIn,
     }
 
+    [InTypeScript(true)]
     public enum FilterType
     {
         Integer,
@@ -158,6 +169,7 @@ namespace Signum.Entities.DynamicQuery
         Guid,
     }
 
+    [InTypeScript(true)]
     public enum UniqueType
     {
         First,

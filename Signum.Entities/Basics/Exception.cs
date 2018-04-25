@@ -6,6 +6,9 @@ using Signum.Utilities;
 using System.Threading;
 using System.Collections.Specialized;
 using System.Collections;
+using Signum.Entities;
+using System.Linq.Expressions;
+using Signum.Entities.Basics;
 
 namespace Signum.Entities.Basics
 {
@@ -30,7 +33,6 @@ namespace Signum.Entities.Basics
         public DateTime CreationDate { get; private set; } = TimeZoneManager.Now;
 
         [NotNullable, SqlDbType(Size = 100)]
-        [StringLengthValidator(AllowNulls = false, Min = 3, Max = 100)]
         public string ExceptionType { get; set; }
 
         [NotNullable, SqlDbType(Size = int.MaxValue)]
@@ -49,7 +51,6 @@ namespace Signum.Entities.Basics
 
         [NotNullable, SqlDbType(Size = int.MaxValue)]
         string stackTrace;
-        [StringLengthValidator(AllowNulls = false, Min = 1, MultiLine = true)]
         public string StackTrace
         {
             get { return stackTrace; }
@@ -67,45 +68,36 @@ namespace Signum.Entities.Basics
         public Lite<IUserEntity> User { get; set; }
 
         [SqlDbType(Size = 100)]
-        [StringLengthValidator(AllowNulls = true, Min = 3, Max = 100)]
         public string Environment { get; set; }
 
         [SqlDbType(Size = 100)]
-        [StringLengthValidator(AllowNulls = false, Min = 3, Max = 100)]
         public string Version { get; set; }
 
         [SqlDbType(Size = 300)]
-        [StringLengthValidator(AllowNulls = true, Max = 300)]
         public string UserAgent { get; set; }
 
         [SqlDbType(Size = int.MaxValue)]
         public string RequestUrl { get; set; }
 
         [SqlDbType(Size = 100)]
-        [StringLengthValidator(AllowNulls = true, Max = 100)]
         public string ControllerName { get; set; }
 
         [SqlDbType(Size = 100)]
-        [StringLengthValidator(AllowNulls = true, Max = 100)]
         public string ActionName { get; set; }
 
         [SqlDbType(Size = int.MaxValue)]
         public string UrlReferer { get; set; }
 
         [SqlDbType(Size = 100)]
-        [StringLengthValidator(AllowNulls = true, Max = 100)]
         public string MachineName { get; set; }
 
         [SqlDbType(Size = 100)]
-        [StringLengthValidator(AllowNulls = true, Max = 100)]
         public string ApplicationName { get; set; }
 
         [SqlDbType(Size = 100)]
-        [StringLengthValidator(AllowNulls = true, Max = 100)]
         public string UserHostAddress { get; set; }
 
         [SqlDbType(Size = 100)]
-        [StringLengthValidator(AllowNulls = true, Min = 3, Max = 100)]
         public string UserHostName { get; set; }
 
         [SqlDbType(Size = int.MaxValue)]
@@ -119,6 +111,8 @@ namespace Signum.Entities.Basics
 
         [SqlDbType(Size = int.MaxValue)]
         public string Data { get; set; }
+
+        public int HResult { get; internal set; }
 
         public bool Referenced { get; set; }
 
@@ -135,18 +129,50 @@ namespace Signum.Entities.Basics
 
 
     [Serializable]
-    public class DeleteLogParametersEntity : EmbeddedEntity
+    public class DeleteLogParametersEmbedded : EmbeddedEntity
     {
-        [Unit("Days"), NumberIsValidator(ComparisonType.GreaterThan, 0)]
-        public int DeleteLogsWithMoreThan { get; set; } = 30 * 6;
+        [PreserveOrder]
+        [NotNullValidator, NoRepeatValidator]
+        public MList<DeleteLogsTypeOverridesEmbedded> DeleteLogs { get; set; } = new MList<DeleteLogsTypeOverridesEmbedded>();
 
-        public DateTime DateLimit
+        public DateTime? GetDateLimitDelete(TypeEntity type)
         {
-            get { return DateTime.Today.AddDays(-DeleteLogsWithMoreThan); }
+            var moreThan = DeleteLogs.SingleOrDefaultEx(a => a.Type.RefersTo(type))?.DeleteLogsWithMoreThan;
+
+            if (moreThan == null)
+                return null;
+
+            return moreThan == 0 ? TimeZoneManager.Now.TrimToHours() : TimeZoneManager.Now.Date.AddDays(-moreThan.Value);
+        }
+
+        public DateTime? GetDateLimitClean(TypeEntity type)
+        {
+            var moreThan = DeleteLogs.SingleOrDefaultEx(a => a.Type.RefersTo(type))?.CleanLogsWithMoreThan;
+
+            if (moreThan == null)
+                return null;
+
+            return moreThan.Value == 0 ? TimeZoneManager.Now.TrimToHours() : TimeZoneManager.Now.Date.AddDays(-moreThan.Value);
         }
 
         public int ChunkSize { get; set; } = 1000;
 
-        public int MaxChunks { get; set; }
+        public int MaxChunks { get; set; } = 20;
+
+        [Unit("ms")]
+        public int? PauseTime { get; set; } = 5000;
+    }
+
+    [Serializable]
+    public class DeleteLogsTypeOverridesEmbedded : EmbeddedEntity
+    {
+        [NotNullValidator]
+        public Lite<TypeEntity> Type { get; set; }
+
+        [Unit("Days"), NumberIsValidator(ComparisonType.GreaterThanOrEqualTo, 0)]
+        public int? DeleteLogsWithMoreThan { get; set; } = 30 * 6;
+
+        [Unit("Days"), NumberIsValidator(ComparisonType.GreaterThanOrEqualTo, 0)]
+        public int? CleanLogsWithMoreThan { get; set; } = 30 * 6;
     }
 }

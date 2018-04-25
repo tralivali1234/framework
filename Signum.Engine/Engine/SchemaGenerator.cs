@@ -13,9 +13,11 @@ namespace Signum.Engine
     {
         public static SqlPreCommand CreateSchemasScript()
         {
-            return Schema.Current.GetDatabaseTables()
+            Schema s = Schema.Current;
+
+            return s.GetDatabaseTables()
                 .Select(a => a.Name.Schema)
-                .Where(s => s.Name != "dbo")
+                .Where(sn => sn.Name != "dbo" && !s.IsExternalDatabase(sn.Database))
                 .Distinct()
                 .Select(SqlBuilder.CreateSchema)
                 .Combine(Spacing.Simple);
@@ -23,13 +25,26 @@ namespace Signum.Engine
 
         public static SqlPreCommand CreateTablesScript()
         {
-            List<ITable> tables = Schema.Current.GetDatabaseTables().ToList();
-
+            Schema s = Schema.Current;
+            List<ITable> tables = s.GetDatabaseTables().Where(t => !s.IsExternalDatabase(t.Name.Schema.Database)).ToList();
+            
             SqlPreCommand createTables = tables.Select(SqlBuilder.CreateTableSql).Combine(Spacing.Double).PlainSqlCommand();
 
             SqlPreCommand foreignKeys = tables.Select(SqlBuilder.AlterTableForeignKeys).Combine(Spacing.Double).PlainSqlCommand();
 
-            SqlPreCommand indices = tables.Select(SqlBuilder.CreateAllIndices).NotNull().Combine(Spacing.Double).PlainSqlCommand();
+            SqlPreCommand indices = tables.Select(t =>
+            {
+                var allIndexes = t.GeneratAllIndexes().Where(a => !(a is PrimaryClusteredIndex)); ;
+
+                var mainIndices = allIndexes.Select(ix => SqlBuilder.CreateIndex(ix)).Combine(Spacing.Simple);
+
+                var historyIndices = t.SystemVersioned == null ? null :
+                         allIndexes.Where(a => a.GetType() == typeof(Index)).Select(mix => SqlBuilder.CreateIndexBasic(mix, forHistoryTable: true)).Combine(Spacing.Simple);
+
+                return SqlPreCommand.Combine(Spacing.Double, mainIndices, historyIndices);
+
+            }).NotNull().Combine(Spacing.Double).PlainSqlCommand();
+
 
             return SqlPreCommand.Combine(Spacing.Triple, createTables, foreignKeys, indices);
         }
@@ -49,6 +64,7 @@ namespace Signum.Engine
             if (!Connector.Current.AllowsSetSnapshotIsolation)
                 return null;
 
+
             var list = Schema.Current.DatabaseNames().Select(a => a?.ToString()).ToList();
 
             if (list.Contains(null))
@@ -57,17 +73,23 @@ namespace Signum.Engine
                 list.Add(Connector.Current.DatabaseName());
             }
 
-            var cmd = list.Select(a =>
-                SqlPreCommand.Combine(Spacing.Simple,
-                //DisconnectUsers(a.name, "SPID" + i) : null,
-                SqlBuilder.SetSingleUser(a),
-                SqlBuilder.SetSnapshotIsolation(a, true),
-                SqlBuilder.MakeSnapshotIsolationDefault(a, true),
-                SqlBuilder.SetMultiUser(a))                              
+            var cmd = list
+                .Where(db => !SnapshotIsolationEnabled(db))
+                .Select(a => SqlPreCommand.Combine(Spacing.Simple,
+                    SqlBuilder.SetSingleUser(a),
+                    SqlBuilder.SetSnapshotIsolation(a, true),
+                    SqlBuilder.MakeSnapshotIsolationDefault(a, true),
+                    SqlBuilder.SetMultiUser(a))                              
                 ).Combine(Spacing.Double);
 
             return cmd;
         }
-        
+
+        private static bool SnapshotIsolationEnabled(string dbName)
+        {
+            //SQL Server Replication makes it hard to do ALTER DATABASE statments, so we are conservative even if Generate should not have Synchronize behaviour
+            var result = Database.View<SysDatabases>().Where(s => s.name == dbName).Select(a => a.is_read_committed_snapshot_on && a.snapshot_isolation_state).SingleOrDefaultEx();
+            return result;
+        }
     }
 }

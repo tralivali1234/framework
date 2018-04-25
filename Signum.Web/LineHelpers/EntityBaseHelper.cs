@@ -41,7 +41,7 @@ namespace Signum.Web
             vdd[ViewDataKeys.ViewMode] = !line.ReadOnly;
             vdd[ViewDataKeys.ViewMode] = ViewMode.View;
             vdd[ViewDataKeys.ShowOperations] = true;
-            vdd[ViewDataKeys.SaveProtected] = OperationLogic.IsSaveProtected(tc.UntypedValue.GetType());
+            vdd[ViewDataKeys.RequiresSaveOperation] = tc.UntypedValue is Entity && EntityKindCache.RequiresSaveOperation(tc.UntypedValue.GetType());
             vdd[ViewDataKeys.WriteEntityState] = 
                 !isTemplate &&
                 !(tc.UntypedValue is EmbeddedEntity) &&
@@ -256,7 +256,7 @@ namespace Signum.Web
 
             return new HtmlTag("a", listBase.Compose("btnUp"))
                 .Class(btn ? "btn btn-default" : null)
-                .Class("btn btn-default sf-line-button move-up")
+                .Class("sf-line-button move-up")
                 .Attr("onclick", listBase.SFControlThen("moveUp_click(event)"))
                 .Attr("title", JavascriptMessage.moveUp.NiceToString())
                 .InnerHtml(new HtmlTag("span").Class("glyphicon glyphicon-chevron-up"));
@@ -266,7 +266,7 @@ namespace Signum.Web
         {
             return new HtmlTag(elementType, itemContext.Compose("btnUp"))
                 .Class(btn ? "btn btn-default" : null)
-                .Class("sf-line-button move-up")
+                .Class("sf-line-button move-up") 
                 .Attr("onclick", entityListBase.SFControlThen("moveUp('{0}', event)".FormatWith(itemContext.Prefix)))
                 .Attr("title", JavascriptMessage.moveUp.NiceToString())
                 .InnerHtml(new HtmlTag("span").Class("glyphicon " + (isVertical ? "glyphicon-chevron-up" : "glyphicon-chevron-left")));

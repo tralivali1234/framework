@@ -8,10 +8,10 @@ using Signum.Utilities.Reflection;
 using Signum.Utilities;
 using Signum.Utilities.ExpressionTrees;
 using Signum.Entities.Reflection;
+using System.Globalization;
 
 namespace Signum.Entities.DynamicQuery
 {
-    [Serializable]
     public class StepToken : QueryToken
     {
         public decimal StepSize;
@@ -20,6 +20,7 @@ namespace Signum.Entities.DynamicQuery
             : base(parent)
         {
             this.StepSize = stepSize;
+            this.Priority = 1; 
         }
 
         public override string ToString()
@@ -44,7 +45,7 @@ namespace Signum.Entities.DynamicQuery
 
         public override string Key
         {
-            get { return "Step" + StepSize.ToString().Replace(".", "_"); }
+            get { return "Step" + StepSize.ToString(CultureInfo.InvariantCulture).Replace(".", "_"); }
         }
 
         protected override List<QueryToken> SubTokensOverride(SubTokensOptions options)
@@ -96,7 +97,7 @@ namespace Signum.Entities.DynamicQuery
             return new StepToken(this.Parent.Clone(), this.StepSize);
         }
 
-        public override bool IsRealGroupable
+        public override bool IsGroupable
         {
             get { return true; }
         }
@@ -185,7 +186,7 @@ namespace Signum.Entities.DynamicQuery
             return this.Parent.IsAllowed();
         }
 
-        public override bool IsRealGroupable
+        public override bool IsGroupable
         {
             get { return true; }
         }
@@ -214,7 +215,7 @@ namespace Signum.Entities.DynamicQuery
                 Rounding == RoundingType.Floor ? "⌊{0}⌋" :
                 Rounding == RoundingType.Round ? "[{0}]" :
                 Rounding == RoundingType.RoundMiddle ? "|{0}|" :
-                new InvalidOperationException().Throw<string>();
+                throw new InvalidOperationException();
 
             return QueryTokenMessage._0Steps1.NiceToString(Parent.Parent.Parent.NiceName(), str.FormatWith(num));
         }
@@ -271,7 +272,7 @@ namespace Signum.Entities.DynamicQuery
             return new StepRoundingToken((StepMultiplierToken)this.Parent.Clone(), this.Rounding);
         }
 
-        public override bool IsRealGroupable
+        public override bool IsGroupable
         {
             get { return true; }
         }
@@ -340,6 +341,82 @@ namespace Signum.Entities.DynamicQuery
         RoundMiddle,
     }
 
+    public class ModuloToken : QueryToken
+    {
+        public int Divisor;
 
- 
+        internal ModuloToken(QueryToken parent, int divisor)
+            : base(parent)
+        {
+            this.Divisor = divisor;
+        }
+
+        public override string ToString()
+        {
+            return QueryTokenMessage.Modulo0.NiceToString(Divisor);
+        }
+
+        public override string NiceName()
+        {
+            return QueryTokenMessage._0Mod1.NiceToString(Parent.NiceName(), Divisor);
+        }
+
+        public override string Format
+        {
+            get { return null; }
+        }
+
+        public override Type Type
+        {
+            get { return typeof(int).Nullify(); }
+        }
+
+        public override string Key
+        {
+            get { return "Mod" + Divisor.ToString(CultureInfo.InvariantCulture).Replace(".", "_"); }
+        }
+
+        protected override List<QueryToken> SubTokensOverride(SubTokensOptions options)
+        {
+            return new List<QueryToken>
+            {
+            };
+        }
+
+        protected override Expression BuildExpressionInternal(BuildExpressionContext context)
+        {
+            var exp = Parent.BuildExpression(context);
+            return Expression.Modulo(Expression.Convert(exp, typeof(int)), Expression.Constant(Divisor)).Nullify();
+        }
+
+        public override string Unit
+        {
+            get { return this.Parent.Unit; }
+        }
+
+        public override PropertyRoute GetPropertyRoute()
+        {
+            return this.Parent.GetPropertyRoute();
+        }
+
+        public override Implementations? GetImplementations()
+        {
+            return this.Parent.GetImplementations();
+        }
+
+        public override string IsAllowed()
+        {
+            return this.Parent.IsAllowed();
+        }
+
+        public override QueryToken Clone()
+        {
+            return new ModuloToken(this.Parent.Clone(), this.Divisor);
+        }
+
+        public override bool IsGroupable
+        {
+            get { return true; }
+        }
+    }
 }

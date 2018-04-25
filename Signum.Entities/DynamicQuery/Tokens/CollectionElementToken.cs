@@ -30,7 +30,7 @@ namespace Signum.Entities.DynamicQuery
 
         public override Type Type
         {
-            get { return elementType.BuildLiteNulifyUnwrapPrimaryKey(new[] { this.GetPropertyRoute() }); }
+            get { return elementType.BuildLiteNullifyUnwrapPrimaryKey(new[] { this.GetPropertyRoute() }); }
         }
 
         public override string ToString()
@@ -57,9 +57,8 @@ namespace Signum.Entities.DynamicQuery
         {
             get
             {
-                ExtensionToken et = Parent as ExtensionToken;
 
-                if (et != null && et.IsProjection)
+                if (Parent is ExtensionToken et && et.IsProjection)
                     return et.ElementFormat;
 
                 return Parent.Format;
@@ -70,9 +69,8 @@ namespace Signum.Entities.DynamicQuery
         {
             get
             {
-                ExtensionToken et = Parent as ExtensionToken;
 
-                if (et != null && et.IsProjection)
+                if (Parent is ExtensionToken et && et.IsProjection)
                     return et.ElementUnit;
 
                 return Parent.Unit;
@@ -86,16 +84,23 @@ namespace Signum.Entities.DynamicQuery
 
         public override bool HasAllOrAny()
         {
-            return
+            return 
                 CollectionElementType != CollectionElementType.Element &&
                 CollectionElementType != CollectionElementType.Element2 &&
                 CollectionElementType != CollectionElementType.Element3;
         }
 
+        public override bool HasElement()
+        {
+            return base.HasElement() ||
+                CollectionElementType == CollectionElementType.Element ||
+                CollectionElementType == CollectionElementType.Element2 ||
+                CollectionElementType == CollectionElementType.Element3;
+        }
+
         public override PropertyRoute GetPropertyRoute()
         {
-            ExtensionToken et = Parent as ExtensionToken;
-            if (et != null && et.IsProjection)
+            if (Parent is ExtensionToken et && et.IsProjection)
                 return et.GetElementPropertyRoute();
 
             PropertyRoute parent = Parent.GetPropertyRoute();
@@ -108,7 +113,7 @@ namespace Signum.Entities.DynamicQuery
         public override string NiceName()
         {
             if (!CollectionElementType.IsElement())
-                throw new InvalidOperationException("NiceName not supported for {0}".FormatWith(CollectionElementType));
+                return null;
 
             Type parentElement = elementType.CleanType();
 

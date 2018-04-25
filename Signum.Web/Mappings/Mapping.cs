@@ -21,6 +21,8 @@ using Signum.Web;
 using Microsoft.SqlServer.Types;
 using Signum.Entities.Basics;
 using System.Drawing;
+using static Signum.Entities.UserAssets.SmartDateTimeFilterValueConverter;
+using Signum.Entities.UserAssets;
 
 namespace Signum.Web
 {
@@ -57,7 +59,7 @@ namespace Signum.Web
             MappingRepository<decimal>.Mapping = GetValue(ctx => ctx.PropertyRoute != null && ReflectionTools.IsPercentage(Reflector.FormatString(ctx.PropertyRoute), CultureInfo.CurrentCulture) ? (decimal)ReflectionTools.ParsePercentage(ctx.Input, typeof(decimal), CultureInfo.CurrentCulture) : decimal.Parse(ctx.Input));
             MappingRepository<DateTime>.Mapping = GetValue(ctx => DateTime.Parse(ctx.HasInput ? ctx.Input : ctx.Inputs["Date"] + " " + ctx.Inputs["Time"]).FromUserInterface());
             MappingRepository<Guid>.Mapping = GetValue(ctx => Guid.Parse(ctx.Input));
-            MappingRepository<TimeSpan>.Mapping = GetValue(ctx => 
+            MappingRepository<TimeSpan>.Mapping = GetValue(ctx =>
             {
                 var dateFormatAttr = ctx.PropertyRoute.PropertyInfo.GetCustomAttribute<TimeSpanDateFormatAttribute>();
                 if (dateFormatAttr != null)
@@ -66,7 +68,7 @@ namespace Signum.Web
                     return TimeSpan.Parse(ctx.Input);
             });
             MappingRepository<SqlHierarchyId>.Mapping = GetValue(ctx => SqlHierarchyId.Parse(ctx.Input));
-            MappingRepository<ColorEntity>.Mapping = GetValue(ctx => ctx.Input.HasText() ? ColorEntity.FromRGBHex(ctx.Input) : null);
+            MappingRepository<ColorEmbedded>.Mapping = GetValue(ctx => ctx.Input.HasText() ? ColorEmbedded.FromRGBHex(ctx.Input) : null);
 
             MappingRepository<bool?>.Mapping = GetValueNullable(ctx => ParseHtmlBool(ctx.Input));
             MappingRepository<byte?>.Mapping = GetValueNullable(ctx => byte.Parse(ctx.Input));
@@ -83,7 +85,29 @@ namespace Signum.Web
             MappingRepository<DateTime?>.Mapping = GetValue(ctx =>
             {
                 var input = ctx.HasInput ? ctx.Input : " ".CombineIfNotEmpty(ctx.Inputs["Date"], ctx.Inputs["Time"]);
-                return input.HasText() ? DateTime.Parse(input).FromUserInterface() : (DateTime?)null;
+
+
+
+                if (input.HasText())
+                {
+                    DateTime dt;
+                    if (DateTime.TryParse(input, out dt))
+                        return dt.FromUserInterface();
+                    else
+                    {
+                        var res = SmartDateTimeSpan.TryParse(input, allowSmart: true);
+                        if (res is Result<SmartDateTimeSpan>.Success s)
+                        {
+                            dt = s.Value.ToDateTime();
+                            return dt.FromUserInterface();
+
+                        }
+                    }
+                }
+
+                return (DateTime?)null;
+
+                //return input.HasText() ? DateTime.Parse(input).FromUserInterface() : (DateTime?)null;
             });
             MappingRepository<Guid?>.Mapping = GetValueNullable(ctx => Guid.Parse(ctx.Input));
             MappingRepository<TimeSpan?>.Mapping = GetValue(ctx => 
@@ -607,6 +631,13 @@ namespace Signum.Web
 
                 return ctx.Value;
             }
+            else if (typeof(T).IsModelEntity())
+            {
+                if (runtimeInfo.IsNew || ctx.Value == null)
+                    return new ConstructorContext(ctx.Controller).Construct<T>();
+
+                return ctx.Value;
+            }
             else
             {
                 Entity identifiable = (Entity)(ModifiableEntity)ctx.Value;
@@ -900,15 +931,15 @@ namespace Signum.Web
 
                 IMListPrivate<S> mlistPriv = ctx.Value;
 
-                var dic = mlistPriv == null ? new Dictionary<PrimaryKey, MList<S>.RowIdValue>() :
+                var dic = mlistPriv == null ? new Dictionary<PrimaryKey, MList<S>.RowIdElement>() :
                     mlistPriv.InnerList.Where(a => a.RowId.HasValue).ToDictionary(a => a.RowId.Value, a => a);
 
-                var newList = new List<MList<S>.RowIdValue>();
+                var newList = new List<MList<S>.RowIdElement>();
                 foreach (MappingContext<S> itemCtx in GenerateItemContexts(ctx))
                 {
                     Debug.Assert(!itemCtx.Empty());
 
-                    string rowIdString = itemCtx.Inputs.TryGetC(EntityListBaseKeys.RowId);  
+                    string rowIdString = (itemCtx.Inputs.ContainsKey(EntityListBaseKeys.RowId)? itemCtx.Inputs[EntityListBaseKeys.RowId]:null);  
 
                     if(rowIdString.HasText())
                     {
@@ -916,19 +947,19 @@ namespace Signum.Web
 
                         var oldValue = dic.GetOrThrow(rowId, "No RowID {0} found");
 
-                        itemCtx.Value = oldValue.Value;
+                        itemCtx.Value = oldValue.Element;
                         itemCtx.Value = ElementMapping(itemCtx);
 
                         ctx.AddChild(itemCtx);
 
                         if (itemCtx.Value != null)
                         {
-                            var val = itemCtx.SupressChange ? oldValue.Value : itemCtx.Value;
+                            var val = itemCtx.SupressChange ? oldValue.Element : itemCtx.Value;
 
-                            if (oldValue.Value.Equals(val))
-                                newList.Add(new MList<S>.RowIdValue(val, rowId, oldValue.OldIndex));
+                            if (oldValue.Element.Equals(val))
+                                newList.Add(new MList<S>.RowIdElement(val, rowId, oldValue.OldIndex));
                             else
-                                newList.Add(new MList<S>.RowIdValue(val));
+                                newList.Add(new MList<S>.RowIdElement(val));
                         }
                     }
                     else
@@ -936,7 +967,7 @@ namespace Signum.Web
                         itemCtx.Value = ElementMapping(itemCtx);
                         ctx.AddChild(itemCtx);
                         if (itemCtx.Value != null && !itemCtx.SupressChange)
-                            newList.Add(new MList<S>.RowIdValue(itemCtx.Value));
+                            newList.Add(new MList<S>.RowIdElement(itemCtx.Value));
                     }
                 }
 
@@ -947,8 +978,8 @@ namespace Signum.Web
                     if (ctx.Value == null)
                         mlistPriv = ctx.Value = new MList<S>();
 
-                    var added = newList.Select(a=>a.Value).Except(mlistPriv.InnerList.Select(a=>a.Value)).ToList();
-                    var removed = mlistPriv.InnerList.Select(a=>a.Value).Except(newList.Select(a=>a.Value)).ToList();
+                    var added = newList.Select(a=>a.Element).Except(mlistPriv.InnerList.Select(a=>a.Element)).ToList();
+                    var removed = mlistPriv.InnerList.Select(a=>a.Element).Except(newList.Select(a=>a.Element)).ToList();
 
                     mlistPriv.InnerList.Clear();
                     mlistPriv.InnerList.AddRange(newList);
@@ -977,7 +1008,7 @@ namespace Signum.Web
             return tryField.TableMList.PrimaryKey.Type;
         }
 
-        private bool AreEqual(List<MList<S>.RowIdValue> newList, List<MList<S>.RowIdValue> oldList)
+        private bool AreEqual(List<MList<S>.RowIdElement> newList, List<MList<S>.RowIdElement> oldList)
         {
             if (newList.IsNullOrEmpty() && oldList.IsNullOrEmpty())
                 return true;
@@ -993,7 +1024,7 @@ namespace Signum.Web
             for (int i = 0; i < newList.Count; i++)
             {
                 if (newList[i].RowId != oldList[i].RowId ||
-                   !object.Equals(newList[i].Value, oldList[i].Value))
+                   !object.Equals(newList[i].Element, oldList[i].Element))
                     return false;
             }
 

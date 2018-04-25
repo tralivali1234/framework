@@ -88,6 +88,13 @@ namespace Signum.Utilities
         PolymorphicMerger<T> merger;
         Type minimumType;
 
+
+       public bool ContainsKey(Type type)
+        {
+           return definitions.ContainsKey(type);
+
+        }
+
         bool IsAllowed(Type type)
         {
             return minimumType == null || minimumType.IsAssignableFrom(type);
@@ -146,8 +153,7 @@ namespace Signum.Utilities
 
         T TryGetValueInternal(Type type)
         {
-            T result;
-            if (cached.TryGetValue(type, out result))
+            if (cached.TryGetValue(type, out T result))
                 return result;
 
             var baseValue = type.BaseType == null || !IsAllowed(type.BaseType) ? null : TryGetValue(type.BaseType);

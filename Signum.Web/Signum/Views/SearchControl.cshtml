@@ -13,7 +13,6 @@
     Implementations implementations = entityColumn.Implementations.Value;
     var settings = Finder.QuerySettings(findOptions.QueryName);
     findOptions.Pagination = findOptions.Pagination ?? settings.Pagination ?? FindOptions.DefaultPagination;
-
     ViewData[ViewDataKeys.FindOptions] = findOptions;
 
     var sfb = settings.SimpleFilterBuilder == null ? null :
@@ -25,7 +24,7 @@
      class="sf-search-control SF-control-container" 
      data-prefix="@Model.Prefix" 
      data-find-url="@Finder.FindRoute(findOptions.QueryName)" 
-     data-queryName="@QueryUtils.GetQueryUniqueKey(findOptions.QueryName)" 
+     data-queryName="@QueryUtils.GetKey(findOptions.QueryName)" 
      >
     @if (sfb != null)
     {

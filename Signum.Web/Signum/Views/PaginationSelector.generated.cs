@@ -67,9 +67,28 @@ namespace ASP
             #line 6 "..\..\Signum\Views\PaginationSelector.cshtml"
    
     Pagination pagination = (Pagination)ViewData[ViewDataKeys.Pagination];
+    QueryDescription queryDescription = (QueryDescription)ViewData[ViewDataKeys.QueryDescription];
+
+    pagination = FindOptions.ReplacePagination(queryDescription.QueryName, pagination);
+
     var paginate = pagination as Pagination.Paginate;
 
     ResultTable resultTable = (ResultTable)ViewData[ViewDataKeys.Results];
+
+
+    Func<PaginationMode, int?, int?, Pagination> getPagination = (mode, elementsPerPage, pageNumber) =>
+    {
+        switch (mode)
+        {
+            case PaginationMode.All: return new Pagination.All();
+            case PaginationMode.Firsts: return new Pagination.Firsts(elementsPerPage ?? 1);
+            case PaginationMode.Paginate: return new Pagination.Paginate(elementsPerPage ?? 1);
+            default: throw new InvalidOperationException();
+        }
+    };
+
+
+    Func<Pagination, bool> isAllowed = pag => pag == FindOptions.ReplacePagination(queryDescription.QueryName, pag); 
 
             
             #line default
@@ -78,15 +97,15 @@ WriteLiteral("\r\n\r\n<div");
 
 WriteLiteral(" class=\"sf-search-footer\"");
 
-WriteAttribute("style", Tuple.Create(" style=\"", 398), Tuple.Create("\"", 475)
-, Tuple.Create(Tuple.Create("", 406), Tuple.Create("display:", 406), true)
+WriteAttribute("style", Tuple.Create(" style=\"", 1201), Tuple.Create("\"", 1278)
+, Tuple.Create(Tuple.Create("", 1209), Tuple.Create("display:", 1209), true)
             
-            #line 13 "..\..\Signum\Views\PaginationSelector.cshtml"
-, Tuple.Create(Tuple.Create("", 414), Tuple.Create<System.Object, System.Int32>(((bool)ViewData[ViewDataKeys.ShowFooter])? "block": "none"
+            #line 32 "..\..\Signum\Views\PaginationSelector.cshtml"
+, Tuple.Create(Tuple.Create("", 1217), Tuple.Create<System.Object, System.Int32>(((bool)ViewData[ViewDataKeys.ShowFooter])? "block": "none"
             
             #line default
             #line hidden
-, 414), false)
+, 1217), false)
 );
 
 WriteLiteral(">\r\n    <div");
@@ -96,13 +115,13 @@ WriteLiteral(" class=\"sf-pagination-left\"");
 WriteLiteral(">\r\n");
 
             
-            #line 15 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 34 "..\..\Signum\Views\PaginationSelector.cshtml"
         
             
             #line default
             #line hidden
             
-            #line 15 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 34 "..\..\Signum\Views\PaginationSelector.cshtml"
          if (resultTable != null)
         {
             if (pagination is Pagination.All)
@@ -114,7 +133,7 @@ WriteLiteral(">\r\n");
 WriteLiteral("            <span>");
 
             
-            #line 19 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 38 "..\..\Signum\Views\PaginationSelector.cshtml"
              Write(SearchMessage._0Results_N.NiceToString().ForGenderAndNumber(number: resultTable.TotalElements).FormatHtml(
                        new HtmlTag("span").Class("sf-pagination-strong").SetInnerText(resultTable.TotalElements.ToString())));
 
@@ -124,7 +143,7 @@ WriteLiteral("            <span>");
 WriteLiteral("\r\n            </span>\r\n");
 
             
-            #line 22 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 41 "..\..\Signum\Views\PaginationSelector.cshtml"
                     
             }
             else if (pagination is Pagination.Firsts)
@@ -138,7 +157,7 @@ WriteLiteral("\r\n            </span>\r\n");
 WriteLiteral("            <span>");
 
             
-            #line 28 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 47 "..\..\Signum\Views\PaginationSelector.cshtml"
              Write(SearchMessage.First0Results_N.NiceToString().ForGenderAndNumber(number: resultTable.Rows.Length).FormatHtml(
                     new HtmlTag("span").Class("sf-pagination-strong").Class(resultTable.Rows.Length == first.TopElements ? "sf-pagination-overflow" : null).SetInnerText(resultTable.Rows.Length.ToString())));
 
@@ -148,7 +167,7 @@ WriteLiteral("            <span>");
 WriteLiteral("\r\n            </span>\r\n");
 
             
-            #line 31 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 50 "..\..\Signum\Views\PaginationSelector.cshtml"
             }
             else if (pagination is Pagination.Paginate)
             {
@@ -161,7 +180,7 @@ WriteLiteral("            <span>\r\n");
 WriteLiteral("                ");
 
             
-            #line 35 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 54 "..\..\Signum\Views\PaginationSelector.cshtml"
            Write(SearchMessage._01of2Results_N.NiceToString().ForGenderAndNumber(number: resultTable.TotalElements).FormatHtml(
                         new HtmlTag("span").Class("sf-pagination-strong").SetInnerText(resultTable.StartElementIndex.ToString()),
                         new HtmlTag("span").Class("sf-pagination-strong").SetInnerText(resultTable.EndElementIndex.ToString()),
@@ -174,7 +193,7 @@ WriteLiteral("                ");
 WriteLiteral("\r\n            </span>\r\n");
 
             
-            #line 41 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 60 "..\..\Signum\Views\PaginationSelector.cshtml"
             }
         }
 
@@ -188,21 +207,21 @@ WriteLiteral(" class=\"sf-pagination-center form-inline form-xs\"");
 WriteLiteral(">\r\n");
 
             
-            #line 46 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 65 "..\..\Signum\Views\PaginationSelector.cshtml"
         
             
             #line default
             #line hidden
             
-            #line 46 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 65 "..\..\Signum\Views\PaginationSelector.cshtml"
           
             var currentMode = pagination.GetMode();
-            var modes = EnumExtensions.GetValues<PaginationMode>().Select(pm => new SelectListItem
+            var modes = EnumExtensions.GetValues<PaginationMode>().Where(a => isAllowed(getPagination(a, null, null))).Select(pm => new SelectListItem
             {
                 Text = pm.NiceToString(),
                 Value = pm.ToString(),
                 Selected = currentMode == pm
-            }).ToList();   
+            }).ToList();
         
             
             #line default
@@ -212,7 +231,7 @@ WriteLiteral("\r\n");
 WriteLiteral("        ");
 
             
-            #line 55 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 74 "..\..\Signum\Views\PaginationSelector.cshtml"
    Write(Html.SafeDropDownList(Model.Compose("sfPaginationMode"), modes, new { @class = "sf-pagination-size form-control" }));
 
             
@@ -221,31 +240,31 @@ WriteLiteral("        ");
 WriteLiteral("\r\n\r\n");
 
             
-            #line 57 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 76 "..\..\Signum\Views\PaginationSelector.cshtml"
         
             
             #line default
             #line hidden
             
-            #line 57 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 76 "..\..\Signum\Views\PaginationSelector.cshtml"
          if (!(pagination is Pagination.All))
         {
             var currentElements = pagination.GetElementsPerPage();
-            var elements = new List<int> { 5, 10, 20, 50, 100, 200 }.Select(i => new SelectListItem { Text = i.ToString(), Value = i.ToString(), Selected = i == currentElements }).ToList();
-            
+            var elements = new List<int> { 5, 10, 20, 50, 100, 200 }.Where(a => isAllowed(getPagination(pagination.GetMode(), a, null))).Select(i => new SelectListItem { Text = i.ToString(), Value = i.ToString(), Selected = i == currentElements }).ToList();
+
             
             
             #line default
             #line hidden
             
-            #line 62 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 81 "..\..\Signum\Views\PaginationSelector.cshtml"
        Write(Html.SafeDropDownList(Model.Compose("sfElems"), elements, new { @class = "sf-pagination-size form-control" }));
 
             
             #line default
             #line hidden
             
-            #line 62 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 81 "..\..\Signum\Views\PaginationSelector.cshtml"
                                                                                                                           
         }
 
@@ -259,13 +278,13 @@ WriteLiteral(" class=\"sf-pagination-right\"");
 WriteLiteral(">\r\n\r\n");
 
             
-            #line 68 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 87 "..\..\Signum\Views\PaginationSelector.cshtml"
         
             
             #line default
             #line hidden
             
-            #line 68 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 87 "..\..\Signum\Views\PaginationSelector.cshtml"
          if (resultTable != null && paginate != null)
         {
             MinMax<int> interval = new MinMax<int>(
@@ -280,24 +299,24 @@ WriteLiteral("            <input");
 
 WriteLiteral(" type=\"hidden\"");
 
-WriteAttribute("id", Tuple.Create(" id=\"", 3516), Tuple.Create("\"", 3547)
+WriteAttribute("id", Tuple.Create(" id=\"", 4424), Tuple.Create("\"", 4455)
             
-            #line 74 "..\..\Signum\Views\PaginationSelector.cshtml"
-, Tuple.Create(Tuple.Create("", 3521), Tuple.Create<System.Object, System.Int32>(Model.Compose("sfPage")
+            #line 93 "..\..\Signum\Views\PaginationSelector.cshtml"
+, Tuple.Create(Tuple.Create("", 4429), Tuple.Create<System.Object, System.Int32>(Model.Compose("sfPage")
             
             #line default
             #line hidden
-, 3521), false)
+, 4429), false)
 );
 
-WriteAttribute("value", Tuple.Create(" value=\"", 3548), Tuple.Create("\"", 3577)
+WriteAttribute("value", Tuple.Create(" value=\"", 4456), Tuple.Create("\"", 4485)
             
-            #line 74 "..\..\Signum\Views\PaginationSelector.cshtml"
-, Tuple.Create(Tuple.Create("", 3556), Tuple.Create<System.Object, System.Int32>(paginate.CurrentPage
+            #line 93 "..\..\Signum\Views\PaginationSelector.cshtml"
+, Tuple.Create(Tuple.Create("", 4464), Tuple.Create<System.Object, System.Int32>(paginate.CurrentPage
             
             #line default
             #line hidden
-, 3556), false)
+, 4464), false)
 );
 
 WriteLiteral(" />\r\n");
@@ -308,14 +327,14 @@ WriteLiteral(" class=\"pagination\"");
 
 WriteLiteral(">\r\n                <li");
 
-WriteAttribute("class", Tuple.Create(" class=\"", 3639), Tuple.Create("\"", 3697)
+WriteAttribute("class", Tuple.Create(" class=\"", 4547), Tuple.Create("\"", 4605)
             
-            #line 76 "..\..\Signum\Views\PaginationSelector.cshtml"
-, Tuple.Create(Tuple.Create("", 3647), Tuple.Create<System.Object, System.Int32>((paginate.CurrentPage <= 1) ? "disabled" : null
+            #line 95 "..\..\Signum\Views\PaginationSelector.cshtml"
+, Tuple.Create(Tuple.Create("", 4555), Tuple.Create<System.Object, System.Int32>((paginate.CurrentPage <= 1) ? "disabled" : null
             
             #line default
             #line hidden
-, 3647), false)
+, 4555), false)
 );
 
 WriteLiteral(" ><a");
@@ -323,7 +342,7 @@ WriteLiteral(" ><a");
 WriteLiteral(" data-page=\"");
 
             
-            #line 76 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 95 "..\..\Signum\Views\PaginationSelector.cshtml"
                                                                                           Write(paginate.CurrentPage - 1);
 
             
@@ -336,13 +355,13 @@ WriteLiteral(" href=\"#\"");
 WriteLiteral(">&laquo;</a></li>\r\n\r\n\r\n\r\n");
 
             
-            #line 80 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 99 "..\..\Signum\Views\PaginationSelector.cshtml"
                 
             
             #line default
             #line hidden
             
-            #line 80 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 99 "..\..\Signum\Views\PaginationSelector.cshtml"
                  if (interval.Min != 1)
                 {
 
@@ -358,7 +377,7 @@ WriteLiteral(" href=\"#\"");
 WriteLiteral(">1</a></li>\r\n");
 
             
-            #line 83 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 102 "..\..\Signum\Views\PaginationSelector.cshtml"
                     if (interval.Min - 1 != 1)
                     {
 
@@ -372,7 +391,7 @@ WriteLiteral(" class=\"disabled\"");
 WriteLiteral("><span>...</span></li>\r\n");
 
             
-            #line 86 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 105 "..\..\Signum\Views\PaginationSelector.cshtml"
                     }
                 }
 
@@ -382,13 +401,13 @@ WriteLiteral("><span>...</span></li>\r\n");
 WriteLiteral("\r\n");
 
             
-            #line 89 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 108 "..\..\Signum\Views\PaginationSelector.cshtml"
                 
             
             #line default
             #line hidden
             
-            #line 89 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 108 "..\..\Signum\Views\PaginationSelector.cshtml"
                  for (int i = interval.Min; i < paginate.CurrentPage; i++)
                 {
 
@@ -400,7 +419,7 @@ WriteLiteral("                    <li><a");
 WriteLiteral(" data-page=\"");
 
             
-            #line 91 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 110 "..\..\Signum\Views\PaginationSelector.cshtml"
                                  Write(i);
 
             
@@ -413,7 +432,7 @@ WriteLiteral(" href=\"#\"");
 WriteLiteral(">");
 
             
-            #line 91 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 110 "..\..\Signum\Views\PaginationSelector.cshtml"
                                               Write(i);
 
             
@@ -422,7 +441,7 @@ WriteLiteral(">");
 WriteLiteral("</a></li>  \r\n");
 
             
-            #line 92 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 111 "..\..\Signum\Views\PaginationSelector.cshtml"
                 }
 
             
@@ -435,7 +454,7 @@ WriteLiteral(" class=\"active\"");
 WriteLiteral("><span>");
 
             
-            #line 94 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 113 "..\..\Signum\Views\PaginationSelector.cshtml"
                                     Write(paginate.CurrentPage.ToString());
 
             
@@ -444,13 +463,13 @@ WriteLiteral("><span>");
 WriteLiteral("</span></li>\r\n\r\n");
 
             
-            #line 96 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 115 "..\..\Signum\Views\PaginationSelector.cshtml"
                 
             
             #line default
             #line hidden
             
-            #line 96 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 115 "..\..\Signum\Views\PaginationSelector.cshtml"
                  for (int i = paginate.CurrentPage + 1; i <= interval.Max; i++)
                 {
 
@@ -462,7 +481,7 @@ WriteLiteral("                    <li><a");
 WriteLiteral(" data-page=\"");
 
             
-            #line 98 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 117 "..\..\Signum\Views\PaginationSelector.cshtml"
                                  Write(i);
 
             
@@ -475,7 +494,7 @@ WriteLiteral(" href=\"#\"");
 WriteLiteral(">");
 
             
-            #line 98 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 117 "..\..\Signum\Views\PaginationSelector.cshtml"
                                               Write(i);
 
             
@@ -484,7 +503,7 @@ WriteLiteral(">");
 WriteLiteral("</a></li> \r\n");
 
             
-            #line 99 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 118 "..\..\Signum\Views\PaginationSelector.cshtml"
                 }
 
             
@@ -493,13 +512,13 @@ WriteLiteral("</a></li> \r\n");
 WriteLiteral("\r\n");
 
             
-            #line 101 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 120 "..\..\Signum\Views\PaginationSelector.cshtml"
                 
             
             #line default
             #line hidden
             
-            #line 101 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 120 "..\..\Signum\Views\PaginationSelector.cshtml"
                  if (interval.Max != resultTable.TotalPages)
                 {
                     if (interval.Max + 1 != resultTable.TotalPages)
@@ -515,7 +534,7 @@ WriteLiteral(" class=\"disabled\"");
 WriteLiteral("><span>...</span></li> \r\n");
 
             
-            #line 106 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 125 "..\..\Signum\Views\PaginationSelector.cshtml"
                     }
 
             
@@ -526,7 +545,7 @@ WriteLiteral("                    <li><a");
 WriteLiteral(" data-page=\"");
 
             
-            #line 107 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 126 "..\..\Signum\Views\PaginationSelector.cshtml"
                                  Write(resultTable.TotalPages);
 
             
@@ -539,7 +558,7 @@ WriteLiteral(" href=\"#\"");
 WriteLiteral(">");
 
             
-            #line 107 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 126 "..\..\Signum\Views\PaginationSelector.cshtml"
                                                                    Write(resultTable.TotalPages);
 
             
@@ -548,7 +567,7 @@ WriteLiteral(">");
 WriteLiteral("</a></li> \r\n");
 
             
-            #line 108 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 127 "..\..\Signum\Views\PaginationSelector.cshtml"
                 }
 
             
@@ -556,14 +575,14 @@ WriteLiteral("</a></li> \r\n");
             #line hidden
 WriteLiteral("\r\n                <li");
 
-WriteAttribute("class", Tuple.Create(" class=\"", 4942), Tuple.Create("\"", 5019)
+WriteAttribute("class", Tuple.Create(" class=\"", 5850), Tuple.Create("\"", 5927)
             
-            #line 110 "..\..\Signum\Views\PaginationSelector.cshtml"
-, Tuple.Create(Tuple.Create("", 4950), Tuple.Create<System.Object, System.Int32>(resultTable.TotalPages <= paginate.CurrentPage ? "disabled" : null
+            #line 129 "..\..\Signum\Views\PaginationSelector.cshtml"
+, Tuple.Create(Tuple.Create("", 5858), Tuple.Create<System.Object, System.Int32>(resultTable.TotalPages <= paginate.CurrentPage ? "disabled" : null
             
             #line default
             #line hidden
-, 4950), false)
+, 5858), false)
 );
 
 WriteLiteral("><a");
@@ -573,7 +592,7 @@ WriteLiteral(" class=\"sf-pagination-button\"");
 WriteLiteral(" data-page=\"");
 
             
-            #line 110 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 129 "..\..\Signum\Views\PaginationSelector.cshtml"
                                                                                                                                          Write(paginate.CurrentPage + 1);
 
             
@@ -586,7 +605,7 @@ WriteLiteral(" href=\"#\"");
 WriteLiteral(">&raquo;</a></li>\r\n            </ul>\r\n");
 
             
-            #line 112 "..\..\Signum\Views\PaginationSelector.cshtml"
+            #line 131 "..\..\Signum\Views\PaginationSelector.cshtml"
         }
 
             

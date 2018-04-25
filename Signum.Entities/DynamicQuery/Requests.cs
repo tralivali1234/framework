@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Signum.Entities;
 using Signum.Utilities;
 
 namespace Signum.Entities.DynamicQuery
@@ -9,26 +10,11 @@ namespace Signum.Entities.DynamicQuery
     [Serializable]
     public abstract class BaseQueryRequest
     {
-        object queryName;
-        public object QueryName
-        {
-            get { return queryName; }
-            set { queryName = value; }
-        }
-
-        List<Filter> filters;
-        public List<Filter> Filters
-        {
-            get { return filters; }
-            set { filters = value; }
-        }
-
-        string queryUrl;
-        public string QueryUrl
-        {
-            get { return queryUrl; }
-            set { queryUrl = value; }
-        }
+        public object QueryName { get; set; }
+        
+        public List<Filter> Filters { get; set; }
+        
+        public string QueryUrl { get; set; }
 
         public override string ToString()
         {
@@ -39,47 +25,59 @@ namespace Signum.Entities.DynamicQuery
     [Serializable]
     public class QueryRequest : BaseQueryRequest
     {
-        List<Column> columns;
-        public List<Column> Columns
+        public bool GroupResults { get; set; }
+
+        public List<Column> Columns { get; set; }
+        
+        public List<Order> Orders { get; set; }
+        
+        public Pagination Pagination { get; set; }
+
+        public SystemTime SystemTime { get; set; }
+
+        public List<CollectionElementToken> Multiplications()
         {
-            get { return columns; }
-            set { columns = value; }
+            HashSet<QueryToken> allTokens = this.AllTokens().ToHashSet();
+
+            return CollectionElementToken.GetElements(allTokens);
         }
 
-        List<Order> orders;
-        public List<Order> Orders
+        public List<QueryToken> AllTokens()
         {
-            get { return orders; }
-            set { orders = value; }
-        }
+            var allTokens = Columns.Select(a => a.Token).ToList();
 
-        Pagination pagination;
-        public Pagination Pagination
-        {
-            get { return pagination; }
-            set { pagination = value; }
-        }
+            if (Filters != null)
+                allTokens.AddRange(Filters.Select(a => a.Token));
 
-        public List<CollectionElementToken> Multiplications
-        {
-            get
-            {
-                HashSet<QueryToken> allTokens =
-                    Columns.Select(a => a.Token)
-                    .Concat(Filters.Select(a => a.Token))
-                    .Concat(Orders.Select(a => a.Token)).ToHashSet();
+            if (Orders != null)
+                allTokens.AddRange(Orders.Select(a => a.Token));
 
-                return CollectionElementToken.GetElements(allTokens);
-            }
+            return allTokens;
         }
     }
 
-    [DescriptionOptions(DescriptionOptions.Members)]
+    [DescriptionOptions(DescriptionOptions.Members), InTypeScript(true)]
     public enum PaginationMode
     {
         All,
         Firsts,
         Paginate
+    }
+
+    [DescriptionOptions(DescriptionOptions.Members), InTypeScript(true)]
+    public enum SystemTimeMode
+    {
+        AsOf,
+        Between,
+        ContainedIn,
+        All
+    }
+
+    [DescriptionOptions(DescriptionOptions.Members)]
+    public enum SystemTimeProperty
+    {
+        SystemValidFrom,
+        SystemValidTo,
     }
 
     [Serializable]
@@ -115,18 +113,14 @@ namespace Signum.Entities.DynamicQuery
 
             public Firsts(int topElements)
             {
-                this.topElements = topElements;
+                this.TopElements = topElements;
             }
-
-            readonly int topElements;
-            public int TopElements
-            {
-                get { return topElements; }
-            }
+            
+            public int TopElements { get; private set; }
 
             public override int? MaxElementIndex
             {
-                get { return topElements; }
+                get { return TopElements; }
             }
 
             public override PaginationMode GetMode()
@@ -136,7 +130,7 @@ namespace Signum.Entities.DynamicQuery
 
             public override int? GetElementsPerPage()
             {
-                return topElements;
+                return TopElements;
             }
         }
 
@@ -153,21 +147,13 @@ namespace Signum.Entities.DynamicQuery
                 if (currentPage <= 0)
                     throw new InvalidOperationException("currentPage should be greater than zero");
 
-                this.elementsPerPage = elementsPerPage;
-                this.currentPage = currentPage;
+                this.ElementsPerPage = elementsPerPage;
+                this.CurrentPage = currentPage;
             }
-
-            readonly int elementsPerPage;
-            public int ElementsPerPage          
-            {
-                get { return elementsPerPage; }
-            }
-
-            readonly int currentPage;
-            public int CurrentPage
-            {
-                get { return currentPage; }
-            }
+            
+            public int ElementsPerPage { get; private set; }   
+            
+            public int CurrentPage { get; private set; }
 
             public int StartElementIndex()
             {
@@ -181,7 +167,7 @@ namespace Signum.Entities.DynamicQuery
 
             public int TotalPages(int totalElements)
             {
-                return (totalElements + elementsPerPage - 1) / elementsPerPage; //Round up
+                return (totalElements + ElementsPerPage - 1) / ElementsPerPage; //Round up
             }
 
             public override int? MaxElementIndex
@@ -196,66 +182,24 @@ namespace Signum.Entities.DynamicQuery
 
             public override int? GetElementsPerPage()
             {
-                return elementsPerPage;
+                return ElementsPerPage;
             }
 
             public Paginate WithCurrentPage(int newPage)
             {
-                return new Paginate(this.elementsPerPage, newPage);
+                return new Paginate(this.ElementsPerPage, newPage);
             }
         }
     }
 
     [Serializable]
-    public class QueryGroupRequest : BaseQueryRequest
+    public class QueryValueRequest : BaseQueryRequest
     {
-        List<Column> columns;
-        public List<Column> Columns
-        {
-            get { return columns; }
-            set { columns = value; }
-        }
-
-        List<Order> orders;
-        public List<Order> Orders
-        {
-            get { return orders; }
-            set { orders = value; }
-        }
+        public QueryToken ValueToken { get; set; }
 
         public List<CollectionElementToken> Multiplications
         {
-            get
-            {
-                HashSet<QueryToken> allTokens =
-                    Columns.Select(a => a.Token)
-                    .Concat(Orders.Select(a => a.Token))
-                    .Concat(Filters.Select(a => a.Token)).ToHashSet();
-
-                return CollectionElementToken.GetElements(allTokens);
-            }
-        }
-
-        public List<QueryToken> AllTokens()
-        {
-            var allTokens = Columns.Select(a => a.Token).ToList();
-
-            if (Filters != null)
-                allTokens.AddRange(Filters.Select(a => a.Token));
-
-            if (Orders != null)
-                allTokens.AddRange(Orders.Select(a => a.Token));
-
-            return allTokens;
-        }
-    }
-
-    [Serializable]
-    public class QueryCountRequest : BaseQueryRequest
-    {
-        public List<CollectionElementToken> Multiplications
-        {
-            get { return CollectionElementToken.GetElements(Filters.Select(a => a.Token).ToHashSet()); }
+            get { return CollectionElementToken.GetElements(Filters.Select(a => a.Token).PreAnd(ValueToken).NotNull().ToHashSet()); }
         }
     }
 
@@ -286,5 +230,31 @@ namespace Signum.Entities.DynamicQuery
                 return CollectionElementToken.GetElements(allTokens);
             }
         }
+    }
+
+    [Serializable]
+    public class QueryEntitiesRequest: BaseQueryRequest
+    {
+        List<Order> orders = new List<Order>();
+        public List<Order> Orders
+        {
+            get { return orders; }
+            set { orders = value; }
+        }
+
+        public List<CollectionElementToken> Multiplications
+        {
+            get
+            {
+                HashSet<QueryToken> allTokens = Filters.Select(a => a.Token)
+                    .Concat(Orders.Select(a => a.Token)).ToHashSet();
+
+                return CollectionElementToken.GetElements(allTokens);
+            }
+        }
+
+        public int? Count { get; set; }
+
+        public override string ToString() => QueryName.ToString();
     }
 }

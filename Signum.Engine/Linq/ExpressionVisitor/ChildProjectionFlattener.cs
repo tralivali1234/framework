@@ -7,6 +7,8 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
 using Signum.Engine.Maps;
+using Signum.Entities;
+using Signum.Entities.Reflection;
 using Signum.Utilities;
 using Signum.Utilities.ExpressionTrees;
 using Signum.Utilities.Reflection;
@@ -28,6 +30,19 @@ namespace Signum.Engine.Linq
             var result = VisitProjection(mlp.Projection);
             inMList = oldInEntity;
             return result;
+        }
+
+        private static PropertyInfo GetOrderColumn(Type type)
+        {
+            if (!typeof(ICanBeOrdered).IsAssignableFrom(type))
+                throw new InvalidOperationException($"Type '{type.Name}' should implement '{nameof(ICanBeOrdered)}'");
+
+            var pi = type.GetProperty(nameof(ICanBeOrdered.Order), BindingFlags.Instance | BindingFlags.Public);
+
+            if (pi == null)
+                throw new InvalidOperationException("Order Property not found");
+
+            return pi;
         }
 
         static internal ProjectionExpression Flatten(ProjectionExpression proj, AliasGenerator aliasGenerator)
@@ -108,8 +123,7 @@ namespace Signum.Engine.Linq
                     List<ColumnDeclaration> columnsSMExternal = externalColumns.Select(ce => generatorSM.MapColumn(ce)).ToList();
                     List<ColumnDeclaration> columnsSMInternal = proj.Select.Columns.Select(cd => generatorSM.MapColumn(cd.GetReference(proj.Select.Alias))).ToList();
 
-                    List<OrderExpression> innerOrders;
-                    SelectExpression @internal = ExtractOrders(proj.Select, out innerOrders);
+                    SelectExpression @internal = ExtractOrders(proj.Select, out List<OrderExpression> innerOrders);
 
                     Alias aliasSM = aliasGenerator.GetUniqueAlias(@internal.Alias.Name + "SM");
                     SelectExpression selectMany = new SelectExpression(aliasSM, false, null, columnsSMExternal.Concat(columnsSMInternal),
@@ -204,10 +218,33 @@ namespace Signum.Engine.Linq
                 {
                     case JoinType.SingleRowLeftOuterJoin:
                         return Keys(join.Left);
+                    case JoinType.CrossApply:
+                        {
+                            var leftKeys = Keys(join.Left);
+                            var rightKeys = Keys(join.Right);
 
+                            var onlyLeftKey = leftKeys.Only();
+
+                            if(onlyLeftKey != null && 
+                                join.Right is SelectExpression r && 
+                                r.Where is BinaryExpression b && 
+                                b.NodeType == ExpressionType.Equal &&
+                                b.Left is ColumnExpression cLeft && 
+                                b.Right is ColumnExpression cRight)
+                            {
+                                if(cLeft.Equals(onlyLeftKey) ^ cRight.Equals(onlyLeftKey))
+                                {
+                                    var other = b.Left == onlyLeftKey ? b.Right : b.Left;
+
+                                    if (other is ColumnExpression c && join.Right.KnownAliases.Contains(c.Alias))
+                                        return rightKeys;
+                                }
+                            }
+
+                            return leftKeys.Concat(rightKeys);
+                        }
                     case JoinType.CrossJoin:
                     case JoinType.InnerJoin:
-                    case JoinType.CrossApply:
                     case JoinType.OuterApply:
                     case JoinType.LeftOuterJoin:
                     case JoinType.RightOuterJoin:
@@ -222,8 +259,7 @@ namespace Signum.Engine.Linq
 
             private static IEnumerable<ColumnExpression> KeysTable(TableExpression table)
             {
-                var t = table.Table as Table;
-                if (t != null && t.IsView)
+                if (table.Table is Table t && t.IsView)
                     yield return new ColumnExpression(typeof(int), table.Alias, t.Columns.Values.Single(a => a.PrimaryKey).Name);
                 else
                     yield return new ColumnExpression(typeof(int), table.Alias, table.Table.PrimaryKey.Name);

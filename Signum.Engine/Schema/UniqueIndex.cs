@@ -15,6 +15,9 @@ namespace Signum.Engine.Maps
     {
         public ITable Table { get; private set; }
         public IColumn[] Columns { get; private set; }
+        public IColumn[] IncludeColumns { get; set; }
+
+        public string Where { get; set; }
 
         public static IColumn[] GetColumnsFromFields(params Field[] fields)
         {
@@ -43,19 +46,48 @@ namespace Signum.Engine.Maps
         {
             get { return "IX_{0}".FormatWith(ColumnSignature()).TryStart(Connector.Current.MaxNameLength); }
         }
-
-        protected virtual string ColumnSignature()
+        
+        protected string ColumnSignature()
         {
-            return Columns.ToString(c => c.Name, "_");
+            string columns = Columns.ToString(c => c.Name, "_");
+            var includeColumns = IncludeColumns.HasItems() ? IncludeColumns.ToString(c => c.Name, "_") : null;
+            
+            if (string.IsNullOrEmpty(Where)  && includeColumns == null)
+                return columns;
+
+            return columns + "__" + StringHashEncoder.Codify(Where + includeColumns);
+        }
+
+        public override string ToString()
+        {
+            return IndexName;
+        }
+
+        public string HintText()
+        {
+            return $"INDEX([{this.IndexName}])";
+        }
+    }
+
+    public class PrimaryClusteredIndex : Index
+    {
+        public PrimaryClusteredIndex(ITable table) : base(table, new[] { table.PrimaryKey })
+        {
+
+        }
+
+        public override string IndexName => GetPrimaryKeyName(this.Table.Name);
+
+        public static string GetPrimaryKeyName(ObjectName tableName)
+        {
+            return "PK_" + tableName.Schema.Name + "_" + tableName.Name;
         }
     }
 
     public class UniqueIndex : Index
     {
         public UniqueIndex(ITable table, IColumn[] columns) : base(table, columns) { }
-
-        public string Where { get; set; }
-
+        
 
         public override string IndexName
         {
@@ -76,31 +108,74 @@ namespace Signum.Engine.Maps
             }
         }
 
-       
-
-        protected override string ColumnSignature()
-        {
-            string columns = base.ColumnSignature();
-            if (string.IsNullOrEmpty(Where))
-                return columns;
-
-            return columns + "__" + StringHashEncoder.Codify(Where);
-        }
-
-        static bool IsComplexIB(Field field)
-        {
-            return field is FieldImplementedBy && ((FieldImplementedBy)field).ImplementationColumns.Count > 1;
-        }
-
-        public override string ToString()
-        {
-            return IndexName;
-        }
-
         public bool AvoidAttachToUniqueIndexes { get; set; }
     }
 
-    class IndexWhereExpressionVisitor : ExpressionVisitor
+    public class IndexKeyColumns
+    {
+
+        public static IColumn[] Split(IFieldFinder finder, LambdaExpression columns)
+        {
+            if (columns == null)
+                throw new ArgumentNullException("columns");
+
+            if (columns.Body.NodeType == ExpressionType.New)
+            {
+                return (from a in ((NewExpression)columns.Body).Arguments
+                        from c in GetColumns(finder, Expression.Lambda(Expression.Convert(a, typeof(object)), columns.Parameters))
+                        select c).ToArray();
+            }
+
+            return GetColumns(finder, columns);
+        }
+
+        static string[] ignoreMembers = new string[] { "ToLite", "ToLiteFat" };
+
+        static IColumn[] GetColumns(IFieldFinder finder, LambdaExpression field)
+        {
+            Type type = RemoveCasting(ref field);
+
+            var members = Reflector.GetMemberListUntyped(field);
+            if (members.Any(a => ignoreMembers.Contains(a.Name)))
+                members = members.Where(a => !ignoreMembers.Contains(a.Name)).ToArray();
+            
+            Field f = Schema.FindField(finder, members);
+
+            if (type != null)
+            {
+                var ib = f as FieldImplementedBy;
+                if (ib == null)
+                    throw new InvalidOperationException("Casting only supported for {0}".FormatWith(typeof(FieldImplementedBy).Name));
+
+                return (from ic in ib.ImplementationColumns
+                        where type.IsAssignableFrom(ic.Key)
+                        select (IColumn)ic.Value).ToArray();
+            }
+
+            return Index.GetColumnsFromFields(f);
+        }
+
+        static Type RemoveCasting(ref LambdaExpression field)
+        {
+            var body = field.Body;
+
+            if (body.NodeType == ExpressionType.Convert && body.Type == typeof(object))
+                body = ((UnaryExpression)body).Operand;
+
+            Type type = null;
+            if ((body.NodeType == ExpressionType.Convert || body.NodeType == ExpressionType.TypeAs) &&
+                body.Type != typeof(object))
+            {
+                type = body.Type;
+                body = ((UnaryExpression)body).Operand;
+            }
+
+            field = Expression.Lambda(Expression.Convert(body, typeof(object)), field.Parameters);
+            return type;
+        }
+    }
+
+    public class IndexWhereExpressionVisitor : ExpressionVisitor
     {
         StringBuilder sb = new StringBuilder();
 
@@ -154,8 +229,7 @@ namespace Signum.Engine.Maps
         {
             var f = GetField(b.Expression);
 
-            FieldReference fr = f as FieldReference;
-            if (fr != null)
+            if (f is FieldReference fr)
             {
                 if (b.TypeOperand.IsAssignableFrom(fr.FieldType))
                 {
@@ -167,15 +241,14 @@ namespace Signum.Engine.Maps
                 return b;
             }
 
-            FieldImplementedBy fib = f as FieldImplementedBy;
-            if (fib != null)
+            if (f is FieldImplementedBy fib)
             {
                 var imp = fib.ImplementationColumns.Where(kvp => b.TypeOperand.IsAssignableFrom(kvp.Key));
 
                 if (imp.Any())
                     sb.Append(imp.ToString(kvp => kvp.Value.Name.SqlEscape() + " IS NOT NULL", " OR "));
                 else
-                    throw new InvalidOperationException("No implementation ({0}) will never be {1}".FormatWith(fib.ImplementationColumns.Keys.ToString(t=>t.TypeName(), ", "), b.TypeOperand.TypeName()));
+                    throw new InvalidOperationException("No implementation ({0}) will never be {1}".FormatWith(fib.ImplementationColumns.Keys.ToString(t => t.TypeName(), ", "), b.TypeOperand.TypeName()));
 
                 return b;
             }
@@ -223,10 +296,8 @@ namespace Signum.Engine.Maps
         {
             string isNull = equals ? "{0} IS NULL" : "{0} IS NOT NULL";
 
-            if (field is IColumn)
+            if (field is IColumn col)
             {
-                var col = ((IColumn)field);
-
                 string result = isNull.FormatWith(col.Name.SqlEscape());
 
                 if (!SqlBuilder.IsString(col.SqlDbType))
@@ -235,24 +306,18 @@ namespace Signum.Engine.Maps
                 return result + (equals ? " OR " : " AND ") + (col.Name.SqlEscape() + (equals ? " == " : " <> ") + "''");
 
             }
-            else if (field is FieldImplementedBy)
+            else if (field is FieldImplementedBy ib)
             {
-                var ib = (FieldImplementedBy)field;
-
                 return ib.ImplementationColumns.Values.Select(ic => isNull.FormatWith(ic.Name.SqlEscape())).ToString(equals ? " AND " : " OR ");
             }
-            else if (field is FieldImplementedByAll)
+            else if (field is FieldImplementedByAll iba)
             {
-                var iba = (FieldImplementedByAll)field;
-
                 return isNull.FormatWith(iba.Column.Name.SqlEscape()) +
                     (equals ? " AND " : " OR ") +
                     isNull.FormatWith(iba.ColumnType.Name.SqlEscape());
             }
-            else if (field is FieldEmbedded)
+            else if (field is FieldEmbedded fe)
             {
-                var fe = (FieldEmbedded)field;
-
                 if (fe.HasValue == null)
                     throw new NotSupportedException("{0} is not nullable".FormatWith(field));
 

@@ -43,9 +43,21 @@ namespace Signum.Entities.Reflection
                 item.Modified = ModifiedState.Clean;
         }
 
-        public static DirectedGraph<Modifiable> FromRootIdentifiable(Modifiable root)
+        public static void SetDummyRowIds(IEnumerable<Modifiable> graph)
         {
-            return DirectedGraph<Modifiable>.Generate(root, ModifyInspector.IdentifiableExplore, ReferenceEqualityComparer<Modifiable>.Default);
+            foreach (IMListPrivate mlist in graph.OfType<IMListPrivate>())
+            {
+                for (int i = 0; i < ((IList)mlist).Count; i++)
+                {
+                    if (mlist.GetRowId(i) == null)
+                        mlist.SetRowId(i, DummyRowId);
+                }
+            }
+        }
+
+        public static DirectedGraph<Modifiable> FromRootEntity(Modifiable root)
+        {
+            return DirectedGraph<Modifiable>.Generate(root, ModifyInspector.EntityExplore, ReferenceEqualityComparer<Modifiable>.Default);
         }
 
         public static DirectedGraph<Modifiable> FromRoot(Modifiable root)
@@ -53,16 +65,22 @@ namespace Signum.Entities.Reflection
             return DirectedGraph<Modifiable>.Generate(root, ModifyInspector.FullExplore, ReferenceEqualityComparer<Modifiable>.Default);
         }
 
+        public static DirectedGraph<Modifiable> FromRootVirtual(Modifiable root)
+        {
+            return DirectedGraph<Modifiable>.Generate(root, ModifyInspector.FullExploreVirtual, ReferenceEqualityComparer<Modifiable>.Default);
+        }
+
+
         public static DirectedGraph<Modifiable> FromRoots<T>(IEnumerable<T> roots)
             where T : Modifiable
         {
             return DirectedGraph<Modifiable>.Generate(roots.Cast<Modifiable>(), ModifyInspector.FullExplore, ReferenceEqualityComparer<Modifiable>.Default);
         }
 
-        public static DirectedGraph<Modifiable> FromRootsIdentifiable<T>(IEnumerable<T> roots)
+        public static DirectedGraph<Modifiable> FromRootsEntity<T>(IEnumerable<T> roots)
             where T : Modifiable
         {
-            return DirectedGraph<Modifiable>.Generate(roots.Cast<Modifiable>(), ModifyInspector.IdentifiableExplore, ReferenceEqualityComparer<Modifiable>.Default);
+            return DirectedGraph<Modifiable>.Generate(roots.Cast<Modifiable>(), ModifyInspector.EntityExplore, ReferenceEqualityComparer<Modifiable>.Default);
         }
 
         public static Dictionary<K, V> ToDictionaryOrNull<T, K, V>(this IEnumerable<T> collection, Func<T, K> keySelector, Func<T, V> nullableValueSelector) where V : class
@@ -85,22 +103,25 @@ namespace Signum.Entities.Reflection
             return result;
         }
 
-        public static Dictionary<Guid, Dictionary<string, string>> IdentifiableIntegrityCheck(DirectedGraph<Modifiable> graph)
+        public static Dictionary<Guid, IntegrityCheck> EntityIntegrityCheck(DirectedGraph<Modifiable> graph)
         {
-            return graph.OfType<ModifiableEntity>().ToDictionaryOrNull(a=>a.temporalId, a=>a.IntegrityCheck());
+            return graph.OfType<ModifiableEntity>()
+                .ToDictionaryOrNull(a => a.temporalId, a => a.IntegrityCheck());
         }
 
-        public static Dictionary<Guid, Dictionary<string, string>> FullIntegrityCheck(DirectedGraph<Modifiable> graph)
+        public static Dictionary<Guid, IntegrityCheck> FullIntegrityCheck(DirectedGraph<Modifiable> graph)
         {
             AssertCloneAttack(graph);
 
             DirectedGraph<Modifiable> identGraph = DirectedGraph<Modifiable>.Generate(graph.Where(a => a is Entity), graph.RelatedTo);
 
-            var identErrors = identGraph.OfType<Entity>().Select(ident => ident.EntityIntegrityCheck()).Where(errors => errors != null).SelectMany(errors => errors);
+            var identErrors = identGraph.OfType<Entity>().Select(ident => ident.EntityIntegrityCheck()).Where(errors => errors != null).SelectMany(errors => errors.Values);
 
-            var modErros = graph.Except(identGraph).OfType<ModifiableEntity>().Select(a => KVP.Create(a.temporalId, a.IntegrityCheck())); 
+            var modErros = graph.Except(identGraph).OfType<ModifiableEntity>()
+                            .Select(a => a.IntegrityCheck())
+                            .NotNull();
 
-            return identErrors.Concat(modErros).ToDictionaryOrNull(a=>a.Key, a=>a.Value); 
+            return identErrors.Concat(modErros).ToDictionaryOrNull(a => a.TemporalId, a => a);
         }
 
         static void AssertCloneAttack(DirectedGraph<Modifiable> graph)
@@ -121,29 +142,35 @@ namespace Signum.Entities.Reflection
                 p.ToString(m => "  {0}{1}".FormatWith(m.Modified, m), "\r\n")), "\r\n\r\n"));
         }
 
+        public static bool IsGraphModified(Modifiable modifiable)
+        {
+            var graph = FromRoot(modifiable);
+            return graph.Any(a => a.IsGraphModified);
+        }
+
         public static DirectedGraph<Modifiable> PreSaving(Func<DirectedGraph<Modifiable>> recreate)
         {
-            return PreSaving(recreate, (Modifiable m, ref bool graphModified) => 
+            return PreSaving(recreate, (Modifiable m, PreSavingContext ctx) =>
             {
-                ModifiableEntity me = m as ModifiableEntity;
-
-                if (me != null)
+                if (m is ModifiableEntity me)
                     me.SetTemporalErrors(null);
 
-                m.PreSaving(ref graphModified);
+                m.PreSaving(ctx);
             });
         }
 
-        public delegate void ModifyEntityEventHandler(Modifiable m, ref bool graphModified);
+        public delegate void ModifyEntityEventHandler(Modifiable m, PreSavingContext ctx);
 
         public static DirectedGraph<Modifiable> PreSaving(Func<DirectedGraph<Modifiable>> recreate, ModifyEntityEventHandler modifier)
         {
             DirectedGraph<Modifiable> graph = recreate();
 
+            PreSavingContext ctx = new PreSavingContext(graph);
+
             bool graphModified = false;
             foreach (var m in graph)
             {
-                modifier(m, ref graphModified);
+                modifier(m, ctx);
             }
 
             if (!graphModified)
@@ -152,10 +179,10 @@ namespace Signum.Entities.Reflection
             do
             {
                 var newGraph = recreate();
-                graphModified = false;
+                ctx = new PreSavingContext(graph);
                 foreach (var m in newGraph.Except(graph))
                 {
-                    modifier(m, ref graphModified);
+                    modifier(m, ctx);
                 }
 
                 graph = newGraph;
@@ -165,7 +192,7 @@ namespace Signum.Entities.Reflection
         }
 
 
-        static string[] colors = 
+        static string[] colors =
         {
              "aquamarine1",  "aquamarine4", "blue", "blueviolet",
              "brown4", "burlywood", "cadetblue1", "cadetblue",
@@ -174,6 +201,7 @@ namespace Signum.Entities.Reflection
              "darkturquoise", "darkviolet", "deeppink", "deepskyblue", "forestgreen"
         };
 
+        public static PrimaryKey DummyRowId = new PrimaryKey("dummy");
 
         public static string SuperGraphviz(this DirectedGraph<Modifiable> modifiables)
         {
@@ -232,7 +260,7 @@ namespace Signum.Entities.Reflection
                 new[]
                 {
                     new XAttribute("Label", n.ToString() ?? "[null]"),
-                    new XAttribute("TypeName", n.GetType().TypeName()), 
+                    new XAttribute("TypeName", n.GetType().TypeName()),
                     new XAttribute("Background", ColorExtensions.ToHtmlColor(n.GetType().FullName.GetHashCode()))
                 });
         }
@@ -242,7 +270,7 @@ namespace Signum.Entities.Reflection
             return new[]
             {
                new XAttribute("Label", (ie.ToString() ?? "[null]")  + Modified(ie)),
-               new XAttribute("TypeName", ie.GetType().TypeName()), 
+               new XAttribute("TypeName", ie.GetType().TypeName()),
                new XAttribute("Background", ColorExtensions.ToHtmlColor(ie.GetType().FullName.GetHashCode())),
                new XAttribute("Description", ie.IdOrNull?.ToString() ?? "New")
             };
@@ -258,7 +286,7 @@ namespace Signum.Entities.Reflection
             return new[]
             {
                new XAttribute("Label", (lite.ToString() ?? "[null]") + Modified((Modifiable)lite)),
-               new XAttribute("TypeName", lite.GetType().TypeName()), 
+               new XAttribute("TypeName", lite.GetType().TypeName()),
                new XAttribute("Stroke", ColorExtensions.ToHtmlColor(lite.EntityType.FullName.GetHashCode())),
                new XAttribute("StrokeThickness", "2"),
                new XAttribute("Background", ColorExtensions.ToHtmlColor(lite.EntityType.FullName.GetHashCode()).Replace("#", "#44")),
@@ -271,7 +299,7 @@ namespace Signum.Entities.Reflection
             return new[]
             {
                new XAttribute("Label", (ee.ToString() ?? "[null]")+  Modified(ee)),
-               new XAttribute("TypeName", ee.GetType().TypeName()), 
+               new XAttribute("TypeName", ee.GetType().TypeName()),
                new XAttribute("NodeRadius", 0),
                new XAttribute("Background", ColorExtensions.ToHtmlColor(ee.GetType().FullName.GetHashCode())),
             };
@@ -282,7 +310,7 @@ namespace Signum.Entities.Reflection
             return new[]
             {
                new XAttribute("Label", (ee.ToString() ?? "[null]") +  Modified(ee)),
-               new XAttribute("TypeName", ee.GetType().TypeName()), 
+               new XAttribute("TypeName", ee.GetType().TypeName()),
                new XAttribute("Background", ColorExtensions.ToHtmlColor(ee.GetType().FullName.GetHashCode())),
             };
         }
@@ -292,7 +320,7 @@ namespace Signum.Entities.Reflection
             return new[]
             {
                new XAttribute("Label", (list.ToString() ?? "[null]") +  Modified((Modifiable)list)),
-               new XAttribute("TypeName", list.GetType().TypeName()), 
+               new XAttribute("TypeName", list.GetType().TypeName()),
                new XAttribute("NodeRadius", 2),
                new XAttribute("Background", ColorExtensions.ToHtmlColor(list.GetType().ElementType().FullName.GetHashCode())),
             };
@@ -308,29 +336,34 @@ namespace Signum.Entities.Reflection
             SetValidationErrors(directedGraph, e.Errors);
         }
 
-        public static void SetValidationErrors(DirectedGraph<Modifiable> directedGraph, Dictionary<Guid, Dictionary<string, string>> dictionary)
+        public static void SetValidationErrors(DirectedGraph<Modifiable> directedGraph, Dictionary<Guid, IntegrityCheck> dictionary)
         {
+            var copy = dictionary.ToDictionary();
             foreach (var mod in directedGraph.OfType<ModifiableEntity>())
             {
-                var dic = dictionary.TryGetC(mod.temporalId);
-
-                if (dic != null)
-                    mod.SetTemporalErrors(dic);
+                if (copy.ContainsKey(mod.temporalId))
+                {
+                    var ic = copy.Extract(mod.temporalId);
+                    mod.SetTemporalErrors(ic.Errors);
+                }
             }
+
+            if (copy.Any())
+                throw new InvalidOperationException(copy.Values.ToString("\r\n"));
         }
     }
 
     [Serializable]
     public class IntegrityCheckException : Exception
     {
-        public Dictionary<Guid, Dictionary<string, string>> Errors
+        public Dictionary<Guid, IntegrityCheck> Errors
         {
-            get { return (Dictionary<Guid, Dictionary<string, string>>)this.Data["integrityErrors"]; }
+            get { return (Dictionary<Guid, IntegrityCheck>)this.Data["integrityErrors"]; }
             set { this.Data["integrityErrors"] = value; }
         }
 
-        public IntegrityCheckException(Dictionary<Guid, Dictionary<string, string>> errors)
-            : base(errors.Values.SelectMany(a => a.Values).ToString("\r\n"))
+        public IntegrityCheckException(Dictionary<Guid, IntegrityCheck> errors)
+            : base(errors.Values.ToString("\r\n\r\n"))
         {
             this.Errors = errors;
         }

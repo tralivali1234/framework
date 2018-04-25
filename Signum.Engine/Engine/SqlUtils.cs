@@ -214,7 +214,7 @@ WRITETEXT".Lines().Select(a => a.Trim().ToUpperInvariant()).ToHashSet();
 
         public static string SqlEscape(this string ident)
         {
-            if (Keywords.Contains(ident.ToUpperInvariant()) || Regex.IsMatch(ident, @"-\d|[áéíóúàèìòùÁÉÍÓÚÀÈÌÒÙ ]") || ident.Contains("/") || ident.Contains(@"\"))
+            if (Keywords.Contains(ident.ToUpperInvariant()) || Regex.IsMatch(ident, @"-\d|[áéíóúàèìòùÁÉÍÓÚÀÈÌÒÙ/\\. ]"))
                 return "[" + ident + "]";
 
             return ident;
@@ -236,12 +236,12 @@ WRITETEXT".Lines().Select(a => a.Trim().ToUpperInvariant()).ToHashSet();
                                  column = c.name,
                                  ic.is_descending_key,
                                  ic.is_included_column,
-                                 ic.key_ordinal
+                                 ic.index_column_id
                              }).ToList();
 
             var tables = plainData.AgGroupToDictionary(a => a.table,
                 gr => gr.AgGroupToDictionary(a => new { a.index, a.is_unique },
-                    gr2 => gr2.OrderBy(a => a.key_ordinal)
+                    gr2 => gr2.OrderBy(a => a.index_column_id)
                         .Select(a => a.column + (a.is_included_column ? "(K)" : "(I)") + (a.is_descending_key ? "(D)" : "(A)"))
                         .ToString("|")));
 

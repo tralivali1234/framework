@@ -3,21 +3,19 @@
   <Type Name="AggregateFunction" />
   <Type Name="BooleanEnum" />
   <Type Name="CalendarMessage" />
-  <Type Name="Case" />
   <Type Name="CollectionElementType" />
-  <Type Name="ColorEntity" />
+  <Type Name="ColorEmbedded" />
   <Type Name="ColumnOptionsMode" />
   <Type Name="ComparisonType">
     <Member Name="DistinctTo" Description="distinct to" />
     <Member Name="EqualTo" Description="equal to" />
     <Member Name="GreaterThan" Description="greater than" />
-    <Member Name="GreaterThanOrEqual" Description="greater than or equal" />
     <Member Name="LessThan" Description="less than" />
-    <Member Name="LessThanOrEqual" Description="less than or equal" />
   </Type>
   <Type Name="ConnectionMessage" />
   <Type Name="CorruptMixin" />
-  <Type Name="DeleteLogParametersEntity" />
+  <Type Name="DeleteLogParametersEmbedded" />
+  <Type Name="DeleteLogsTypeOverridesEmbedded" />
   <Type Name="EmbeddedEntity" />
   <Type Name="EngineMessage" />
   <Type Name="Entity" />
@@ -33,6 +31,7 @@
     <Member Name="GreaterThan" Description="greater than" />
     <Member Name="GreaterThanOrEqual" Description="greater than or equal" />
     <Member Name="IsIn" Description="is in" />
+    <Member Name="IsNotIn" Description="is not in" />
     <Member Name="LessThan" Description="less than" />
     <Member Name="LessThanOrEqual" Description="less than or equal" />
     <Member Name="Like" Description="like" />
@@ -61,8 +60,11 @@
   <Type Name="OrderType" />
   <Type Name="PaginationMessage" />
   <Type Name="PaginationMode" />
+  <Type Name="PropertyRouteEntity" />
+  <Type Name="QueryEntity" />
   <Type Name="QueryTokenMessage" />
   <Type Name="QuickLinkMessage" />
+  <Type Name="RoundingType" />
   <Type Name="SearchMessage">
     <Member Name="DeleteFilter" Description="Delete Filter" />
     <Member Name="NewColumnSName" Description="New Column's Name" />
@@ -72,6 +74,7 @@
     <Member Name="PleaseSelectAConstructor" Description="Please Select a Constructor" />
   </Type>
   <Type Name="SemiSymbol" />
+  <Type Name="StringCase" />
   <Type Name="Symbol" />
   <Type Name="SynchronizerMessage" />
   <Type Name="TypeEntity" />

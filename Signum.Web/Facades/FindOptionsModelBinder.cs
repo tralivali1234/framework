@@ -98,8 +98,11 @@ namespace Signum.Web
                     default:
                         break;
                 }
-            }
 
+                if (FindOptions.ReplacePagination(fo.QueryName, fo.Pagination) != fo.Pagination)
+                    throw new InvalidOperationException("Pagination mode not allowed");
+            }
+            
             if (parameters.AllKeys.Contains("searchOnLoad"))
                 fo.SearchOnLoad = bool.Parse(parameters["searchOnLoad"]);
 
@@ -111,13 +114,13 @@ namespace Signum.Web
             "(?<token>[^;,]+),(?<op>[^;,]+),(?<value>'(?:[^']+|'')*'|[^;,]*)(;|$)".Replace('\'', '"'),
             RegexOptions.Multiline | RegexOptions.ExplicitCapture);
 
-        public static List<FilterOption> ExtractFilterOptions(HttpContextBase httpContext, QueryDescription qd, bool canAggregate = false)
+        public static List<FilterOption> ExtractFilterOptions(HttpContextBase httpContext, QueryDescription qd, bool canAggregate = false, string key = null)
         {
             List<FilterOption> result = new List<FilterOption>();
 
             NameValueCollection parameters = httpContext.Request.Params;
-            
-            string field = parameters["filters"];
+
+            string field = parameters[key ?? "filters"];
 
             if (!field.HasText())
                 return result;

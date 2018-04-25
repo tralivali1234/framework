@@ -31,7 +31,7 @@ namespace Signum.Windows
 
         internal abstract bool OnIsCreable(bool isSearchEntity);
         internal abstract bool OnIsViewable();
-        internal abstract bool OnIsNavigable(bool isSearchEntity);
+        public abstract bool OnIsNavigable(bool isSearchEntity);
         internal abstract bool OnIsReadonly();
 
         internal abstract bool HasView();
@@ -141,7 +141,7 @@ namespace Signum.Windows
             return IsViewable;
         }
 
-        internal override bool OnIsNavigable(bool isSearch)
+        public override bool OnIsNavigable(bool isSearch)
         {
             return IsNavigable.HasFlag(isSearch ? EntityWhen.IsSearch : EntityWhen.IsLine);
         }
@@ -157,7 +157,10 @@ namespace Signum.Windows
         }
     }
 
-    public class EmbeddedEntitySettings<T> : EntitySettings where T : EmbeddedEntity
+    public class EmbeddedEntitySettings<T> : ModifiableEntitySettings<T> where T: EmbeddedEntity { }
+    public class ModelEntitySettings<T> : ModifiableEntitySettings<T> where T: ModelEntity { }
+
+    public abstract class ModifiableEntitySettings<T> : EntitySettings where T : ModifiableEntity
     {
         public override Type StaticType
         {
@@ -171,7 +174,7 @@ namespace Signum.Windows
         public bool IsViewable { get; set; }
         public bool IsReadonly { get; set; }
 
-        public EmbeddedEntitySettings()
+        public ModifiableEntitySettings()
         {
             IsCreable = true;
             IsViewable = true;
@@ -214,7 +217,7 @@ namespace Signum.Windows
             return View != null && IsViewable;
         }
 
-        internal override bool OnIsNavigable(bool isSearchEntity)
+        public override bool OnIsNavigable(bool isSearchEntity)
         {
             return false;
         }

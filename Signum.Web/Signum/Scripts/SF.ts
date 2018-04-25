@@ -1,5 +1,4 @@
-﻿/// <reference path="../Headers/es6-promises/es6-promises.d.ts"/>
-/// <reference path="../Headers/jquery/jquery.d.ts"/>
+﻿/// <reference path="../Headers/jquery/jquery.d.ts"/>
 
 
 declare var lang: any;
@@ -37,7 +36,7 @@ module SF {
         }
     }
 
-    once("setupAjaxRedirectPrefilter",() => {
+    once("setupAjaxRedirectPrefilter", () => {
         setupAjaxRedirect();
         setupAjaxExtraParameters();
     });
@@ -110,7 +109,7 @@ module SF {
                 (c == 189) /*-*/ ||
                 (e.ctrlKey && c == 86) /*Ctrl + v*/ ||
                 (e.ctrlKey && c == 67) /*Ctrl + v*/
-                );
+            );
         }
 
         export function isDecimal(e: KeyboardEvent): boolean {
@@ -120,7 +119,7 @@ module SF {
                 (c == 110) /*NumPad Decimal*/ ||
                 (c == 190) /*.*/ ||
                 (c == 188) /*,*/
-                );
+            );
         }
     }
 
@@ -285,7 +284,7 @@ interface FormObject {
     [formKey: string]: any
 }
 
-once("serializeObject",() => {
+once("serializeObject", () => {
     $.fn.serializeObject = function () {
         var o = {};
         var a = this.serializeArray();
@@ -301,21 +300,23 @@ once("serializeObject",() => {
 });
 
 interface Array<T> {
-    groupByArray(keySelector: (element: T) => string): { key: string; elements: T[] }[];
-    groupByObject(keySelector: (element: T) => string): { [key: string]: T[] };
+    groupBy(keySelector: (element: T) => string): { key: string; elements: T[] }[];
+    groupToObject(keySelector: (element: T) => string): { [key: string]: T[] };
     orderBy<V>(keySelector: (element: T) => V): T[];
     orderByDescending<V>(keySelector: (element: T) => V): T[];
-    toObject(keySelector: (element: T) => string): { [key: string]: T };
-    toObjectDistinct(keySelector: (element: T) => string): { [key: string]: T };
+    toObject(this: Array<T>, keySelector: (element: T) => string): { [key: string]: T };
+    toObject<V>(this: Array<T>, keySelector: (element: T) => string, valueSelector: (element: T) => V): { [key: string]: V };
+    toObjectDistinct(this: Array<T>, keySelector: (element: T) => string): { [key: string]: T };
+    toObjectDistinct<V>(this: Array<T>, keySelector: (element: T) => string, valueSelector: (element: T) => V): { [key: string]: V };
     flatMap<R>(selector: (element: T) => R[]): R[];
     max(): T;
     min(): T;
 }
 
-once("arrayExtensions",() => {
-    Array.prototype.groupByArray = function (keySelector: (element: any) => string): { key: string; elements: any[] }[] {
+once("arrayExtensions", () => {
+    Array.prototype.groupBy = function (keySelector: (element: any) => string): { key: string; elements: any[] }[] {
         var result: { key: string; elements: any[] }[] = [];
-        var objectGrouped = this.groupByObject(keySelector);
+        var objectGrouped = (this as any[]).groupToObject(keySelector);
         for (var prop in objectGrouped) {
             if (objectGrouped.hasOwnProperty(prop))
                 result.push({ key: prop, elements: objectGrouped[prop] });
@@ -323,7 +324,7 @@ once("arrayExtensions",() => {
         return result;
     };
 
-    Array.prototype.groupByObject = function (keySelector: (element: any) => string): { [key: string]: any[] } {
+    Array.prototype.groupToObject = function (keySelector: (element: any) => string): { [key: string]: any[] } {
         var result: { [key: string]: any[] } = {};
 
         for (var i = 0; i < this.length; i++) {
@@ -364,28 +365,28 @@ once("arrayExtensions",() => {
         return cloned;
     };
 
-    Array.prototype.toObject = function (keySelector: (element: any) => any): any {
-        var obj = {};
+    Array.prototype.toObject = function (this: any[], keySelector: (element: any) => any, valueSelector?: (element: any) => any): any {
+        const obj: any = {};
 
-        (<Array<any>>this).forEach(item=> {
-            var key = keySelector(item);
+        this.forEach(item => {
+            const key = keySelector(item);
 
             if (obj[key])
                 throw new Error("Repeated key {0}".format(key));
 
-            obj[key] = item;
+            obj[key] = valueSelector ? valueSelector(item) : item;
         });
 
         return obj;
     };
 
-    Array.prototype.toObjectDistinct = function (keySelector: (element: any) => any): any {
-        var obj = {};
+    Array.prototype.toObjectDistinct = function (this: any[], keySelector: (element: any) => any, valueSelector?: (element: any) => any): any {
+        const obj: any = {};
 
-        (<Array<any>>this).forEach(item=> {
-            var key = keySelector(item);
+        this.forEach(item => {
+            const key = keySelector(item);
 
-            obj[key] = item;
+            obj[key] = valueSelector ? valueSelector(item) : item;
         });
 
         return obj;
@@ -395,10 +396,10 @@ once("arrayExtensions",() => {
 
         var array = [];
 
-        (<Array<any>>this).forEach(item=>
+        (<Array<any>>this).forEach(item =>
             selector(item).forEach(item2 =>
                 array.push(item2)
-                ));
+            ));
 
         return array;
     };
@@ -440,7 +441,7 @@ interface String {
     tryGetChild(pathPart: string): JQuery;
 }
 
-once("stringExtensions",() => {
+once("stringExtensions", () => {
     String.prototype.hasText = function () {
         return (this == null || this == undefined || this == '') ? false : true;
     }
@@ -652,7 +653,7 @@ interface Date {
     addYear(inc: number): Date;
 }
 
-once("dateExtensions",() => {
+once("dateExtensions", () => {
 
     Date.prototype.addMiliseconds = function (inc: number) {
         var n = new Date(this.valueOf());
@@ -718,7 +719,7 @@ interface Document {
 }
 
 
-https://github.com/spencertipping/jquery.fix.clone/blob/master/jquery.fix.clone.js
+//https://github.com/spencertipping/jquery.fix.clone/blob/master/jquery.fix.clone.js
 
 (function (original) {
     jQuery.fn.clone = function () {

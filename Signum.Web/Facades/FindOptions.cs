@@ -66,6 +66,7 @@ namespace Signum.Web
         }
 
         public static Pagination DefaultPagination = new Pagination.Paginate(20, 1);
+        public static Func<object, Pagination, Pagination> ReplacePagination = (queryKey, pagination) => pagination;
 
         Pagination pagination;
         public Pagination Pagination
@@ -118,10 +119,10 @@ namespace Signum.Web
             set { allowSelection = value; }
         }
 
-        bool allowOrder = true;
+        bool? allowOrder ;
         public bool AllowOrder
         {
-            get { return allowOrder; }
+            get { return allowOrder ?? Finder.Manager.AllowOrder(); }
             set { allowOrder = value; }
         }
 
@@ -461,13 +462,6 @@ namespace Signum.Web
             foreach (var o in orders.Where(o => o.ColumnName.HasText() && o.Token == null))
                 o.Token = QueryUtils.Parse(o.ColumnName, queryDescription, SubTokensOptions.CanElement | (canAggregate ? SubTokensOptions.CanAggregate : 0));
         }
-    }
-
-    public enum FilterMode
-    {
-        Visible,
-        Hidden,
-        AlwaysHidden
     }
 
     public class ColumnOption

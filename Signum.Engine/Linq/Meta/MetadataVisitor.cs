@@ -147,7 +147,7 @@ namespace Signum.Engine.Linq
                     case "Min":
                     case "Max":
                     case "Average":
-                        return this.BindAggregate(m.Type, m.Method.Name.ToEnum<AggregateFunction>(),
+                        return this.BindAggregate(m.Type, m.Method.Name.ToEnum<AggregateSqlFunction>(),
                             m.GetArgument("source"), m.TryGetArgument("selector").StripQuotes());
                     case "First":
                     case "FirstOrDefault":
@@ -173,8 +173,7 @@ namespace Signum.Engine.Linq
             {
                 var obj = Visit(m.Object);
 
-                var me = obj as MetaExpression;
-                if (me != null && me.Meta is CleanMeta)
+                if (obj is MetaExpression me && me.Meta is CleanMeta)
                 {
                     CleanMeta cm = (CleanMeta)me.Meta;
 
@@ -227,8 +226,7 @@ namespace Signum.Engine.Linq
 
         public static MetaProjectorExpression AsProjection(Expression expression)
         {
-            MetaProjectorExpression mpe = expression as MetaProjectorExpression;
-            if (mpe != null)
+            if (expression is MetaProjectorExpression mpe)
                 return (MetaProjectorExpression)mpe;
 
             if (expression.NodeType == ExpressionType.New)
@@ -241,8 +239,7 @@ namespace Signum.Engine.Linq
             Type elementType = expression.Type.ElementType();
             if (elementType != null)
             {
-                MetaExpression meta = expression as MetaExpression;
-                if (meta != null && meta.Meta is CleanMeta)
+                if (expression is MetaExpression meta && meta.Meta is CleanMeta)
                 {
                     PropertyRoute route = ((CleanMeta)meta.Meta).PropertyRoutes.SingleEx(() => "PropertyRoutes for {0}. Metas don't work over polymorphic MLists".FormatWith(meta.Meta)).Add("Item");
 
@@ -298,7 +295,7 @@ namespace Signum.Engine.Linq
             return MakeVoidMeta(resultType);
         }
 
-        private Expression BindAggregate(Type resultType, AggregateFunction aggregateFunction, Expression source, LambdaExpression selector)
+        private Expression BindAggregate(Type resultType, AggregateSqlFunction aggregateFunction, Expression source, LambdaExpression selector)
         {
             MetaProjectorExpression mp = AsProjection(Visit(source));
             if (selector == null)
@@ -399,10 +396,10 @@ namespace Signum.Engine.Linq
                     TableMList rt = (TableMList)st.Table;
 
 
-                    PropertyRoute element = rt.Route.Add("Item");
+                    PropertyRoute element = rt.PropertyRoute.Add("Item");
 
                     return new MetaProjectorExpression(c.Type, new MetaMListExpression(type, 
-                        new CleanMeta(Implementations.By(parentType), PropertyRoute.Root(rt.Route.RootType)), 
+                        new CleanMeta(Implementations.By(parentType), PropertyRoute.Root(rt.PropertyRoute.RootType)), 
                         new CleanMeta(element.TryGetImplementations(), element)));
                 }
             }
@@ -440,14 +437,13 @@ namespace Signum.Engine.Linq
                     if (nex.Members != null)
                     {
                         PropertyInfo pi = (PropertyInfo)member;
-                        return nex.Members.Zip(nex.Arguments).SingleEx(p => ReflectionTools.PropertyEquals((PropertyInfo)p.Item1, pi)).Item2;
+                        return nex.Members.Zip(nex.Arguments).SingleEx(p => ReflectionTools.PropertyEquals((PropertyInfo)p.first, pi)).second;
                     }
                     break;
             }
 
-            if (source is MetaMListExpression)
+            if (source is MetaMListExpression mme)
             {
-                MetaMListExpression mme = (MetaMListExpression)source;
                 var ga = mme.Type.GetGenericArguments();
                 if (member.Name == "Parent")
                     return new MetaExpression(ga[0], mme.Parent);

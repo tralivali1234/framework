@@ -27,7 +27,7 @@ namespace Signum.Utilities
 
             Console.WriteLine(str);
 
-            Console.SetCursorPosition(Console.CursorLeft, Console.CursorTop - 1);
+            Console.SetCursorPosition(Console.CursorLeft, Console.CursorTop==0? 0: Console.CursorTop - 1);
             needToClear = true;
         }
 
@@ -37,7 +37,7 @@ namespace Signum.Utilities
             {
                 Console.WriteLine(new string(' ', Console.BufferWidth - 1));
 
-                Console.SetCursorPosition(Console.CursorLeft, Console.CursorTop - 1);
+                Console.SetCursorPosition(Console.CursorLeft, Console.CursorTop == 0 ? 0 : Console.CursorTop - 1);
             }
             needToClear = false;
         }
@@ -65,6 +65,14 @@ namespace Signum.Utilities
             ConsoleColor old = Console.ForegroundColor;
             Console.ForegroundColor = color;
             Console.WriteLine(str);
+            Console.ForegroundColor = old;
+        }
+
+        public static void WriteSameLineColor(ConsoleColor color, string str)
+        {
+            ConsoleColor old = Console.ForegroundColor;
+            Console.ForegroundColor = color;
+            WriteSameLine(str);
             Console.ForegroundColor = old;
         }
 
@@ -126,7 +134,7 @@ namespace Signum.Utilities
 
             lock (SyncKey)
             {
-                Console.Write(question + " ({0} - !forAll) ".FormatWith(answers.ToString("/")));
+                Console.Write(question + " ({0} - use '!' for all) ".FormatWith(answers.ToString("/")));
                 do
                 {
                     var userAnswer = Console.ReadLine().ToLower();
@@ -143,7 +151,7 @@ namespace Signum.Utilities
                         return result;
                     }
 
-                    Console.Write("Possible answers: ({0} - !forAll)".FormatWith(answers.ToString("/")));
+                    Console.Write("Possible answers: ({0} - use '!' for all)".FormatWith(answers.ToString("/")));
                 } while (true);
             }
         }
@@ -158,19 +166,21 @@ namespace Signum.Utilities
             return cs.Choose(question);
         }
 
-        public static void WaitRows(string startingText, Func<int> updateOrDelete)
+        public static int WaitRows(string startingText, Func<int> updateOrDelete)
         {
-            SafeConsole.WriteColor(ConsoleColor.Gray, startingText); 
+            SafeConsole.WriteColor(ConsoleColor.Gray, startingText);
+            int result = 0;
             WaitExecute(() =>
             {
-                int result = updateOrDelete();
+                result = updateOrDelete();
 
                 lock (SafeConsole.SyncKey)
                 {
                     SafeConsole.WriteColor(ConsoleColor.White, " {0} ", result);
                     SafeConsole.WriteLineColor(ConsoleColor.DarkGray, "rows afected");
                 }
-            }); 
+            });
+            return result;
         }
 
         public static T WaitQuery<T>(string startingText, Func<T> query)
@@ -198,7 +208,8 @@ namespace Signum.Utilities
             int? result = null;
             try
             {
-                int left  = Console.CursorLeft;
+                int left = Console.CursorLeft;
+              
                
                 DateTime dt = DateTime.Now;
 
@@ -206,10 +217,11 @@ namespace Signum.Utilities
                 {
                     while (result == null)
                     {
-                        Console.SetCursorPosition(left, Console.CursorTop);
+                        var str = " (" + (DateTime.Now - dt).NiceToString(DateTimePrecision.Seconds) + ")";
+                        Console.SetCursorPosition(Math.Max(0,Math.Min(left, Console.WindowWidth - str.Length - 1)), Console.CursorTop);
 
                         lock (SafeConsole.SyncKey)
-                            SafeConsole.WriteColor(ConsoleColor.DarkGray, " (" + (DateTime.Now - dt).NiceToString(DateTimePrecision.Seconds) + ")");
+                            SafeConsole.WriteColor(ConsoleColor.DarkGray,str);
 
                         Thread.Sleep(1000);
                     }

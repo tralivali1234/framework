@@ -41,14 +41,19 @@ namespace Signum.Entities
             PrimaryKeyType.ImportDefinitions(dic);
         }
 
+        public readonly string VariableName; //Used for Sync scenarios
         public readonly IComparable Object;
 
         public PrimaryKey(IComparable obj)
         {
-            if (obj == null)
-                throw new ArgumentNullException("obj");
+            this.Object = obj ?? throw new ArgumentNullException("obj");
+            this.VariableName = null;
+        }
 
-            this.Object = obj;
+        public PrimaryKey(IComparable obj, string variableName)
+        {
+            this.Object = obj ?? throw new ArgumentNullException("obj");
+            this.VariableName = variableName;
         }
 
         public override string ToString()
@@ -126,6 +131,19 @@ namespace Signum.Entities
             return new PrimaryKey(id.Value);
         }
 
+        public static implicit operator PrimaryKey(DateTime id)
+        {
+            return new PrimaryKey(id);
+        }
+
+        public static implicit operator PrimaryKey? (DateTime? id)
+        {
+            if (id == null)
+                return null;
+
+            return new PrimaryKey(id.Value);
+        }
+
 
         public static explicit operator int(PrimaryKey key)
         {
@@ -166,6 +184,19 @@ namespace Signum.Entities
             return (Guid)key.Value.Object;
         }
 
+        public static explicit operator DateTime(PrimaryKey key)
+        {
+            return (DateTime)key.Object;
+        }
+
+        public static explicit operator DateTime? (PrimaryKey? key)
+        {
+            if (key == null)
+                return null;
+
+            return (DateTime)key.Value.Object;
+        }
+
         public static bool operator ==(PrimaryKey a, PrimaryKey b)
         {
             return a.Equals(b);
@@ -198,8 +229,7 @@ namespace Signum.Entities
 
         public static bool TryParse(string value, Type entityType, out PrimaryKey id)
         {
-            object val;
-            if (ReflectionTools.TryParse(value, Type(entityType), out  val))
+            if (ReflectionTools.TryParse(value, Type(entityType), out object val))
             {
                 id = new PrimaryKey((IComparable)val);
                 return true;
@@ -248,6 +278,7 @@ namespace Signum.Entities
         private PrimaryKey(SerializationInfo info, StreamingContext ctxt)
         {
             this.Object = null;
+            this.VariableName = null;
             foreach (SerializationEntry item in info)
             {
                 switch (item.Name)

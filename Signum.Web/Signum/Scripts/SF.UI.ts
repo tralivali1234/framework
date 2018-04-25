@@ -278,8 +278,8 @@ module SF {
             enable();
 
             return promise()
-                .then(val=> { disable(); return val; })
-                ['catch'](err=> { disable(); throw err; return <T>null; }); //Typescript bug?
+                .then(val => { disable(); return val; })
+            ['catch']((err): any => { disable(); throw err; }); //Typescript bug?
         }
     }
 
@@ -307,7 +307,7 @@ module SF {
             if (pane.hasClass("active") || !id)
                 return element;
 
-            var tab = pane.parent().parent().find("a[data-toggle=tab][href=#" + id + "]");
+            var tab = pane.parent().parent().find("a[data-toggle=tab][href='#" + id + "']");
 
             if (!tab.length)
                 return element;

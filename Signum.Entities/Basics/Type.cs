@@ -5,20 +5,32 @@ using System.Text;
 using Signum.Utilities;
 using System.Linq.Expressions;
 using Signum.Utilities.ExpressionTrees;
+using Signum.Entities;
 
 namespace Signum.Entities.Basics
 {
-    [Serializable, EntityKind(EntityKind.System, EntityData.Master), TicksColumn(false)]
+    [Serializable, EntityKind(EntityKind.System, EntityData.Master), TicksColumn(false), InTypeScript(Undefined = false)]
     public class TypeEntity : Entity
     {
-        [NotNullable, UniqueIndex]
-        public string FullClassName { get; set; }
+        [StringLengthValidator(AllowNulls = false, Max = 200), UniqueIndex]
+        public string TableName { get; set; }
 
-        [NotNullable, UniqueIndex]
+        [StringLengthValidator(AllowNulls = false, Max = 200), UniqueIndex]
         public string CleanName { get; set; }
 
-        [NotNullable, UniqueIndex]
-        public string TableName { get; set; }
+        [StringLengthValidator(AllowNulls = false, Max = 200)]
+        public string Namespace { get; set; }
+
+        [StringLengthValidator(AllowNulls = false, Max = 200)]
+        public string ClassName { get; set; }
+        
+        static Expression<Func<TypeEntity, string>> FullClassNameExpression =
+            t => t.Namespace + "." + t.ClassName;
+        [ExpressionField]
+        public string FullClassName
+        {
+            get { return FullClassNameExpression.Evaluate(this); }
+        }
 
         static Expression<Func<TypeEntity, string>> ToStringExpression = e => e.CleanName;
         [ExpressionField]
@@ -32,33 +44,26 @@ namespace Signum.Entities.Basics
             if (type == null)
                 throw new ArgumentException("type");
 
-            return FullClassName == type.FullName;
+            return ClassName == type.Name && Namespace == type.Namespace;
         }
 
-        public string Namespace
-        {
-            get { return FullClassName.Substring(0, FullClassName.LastIndexOf('.').NotFound(0)); }
-        }
-
-        public string ClassName
-        {
-            get { return FullClassName.Substring(FullClassName.LastIndexOf('.') + 1); }
-        }
-
-        public static Func<Type, TypeEntity> ToTypeDNFunc = t => { throw new InvalidOperationException("Lite.ToTypeDNFunc is not set"); };
+        public static Func<Type, TypeEntity> ToTypeEntityFunc = t => { throw new InvalidOperationException("Lite.ToTypeDNFunc is not set"); };
         public static Func<TypeEntity, Type> ToTypeFunc = t => { throw new InvalidOperationException("Lite.ToTypeFunc is not set"); };
         public static Func<string, Type> TryGetType = s => { throw new InvalidOperationException("Lite.TryGetType is not set"); };
         public static Func<Type, string> GetCleanName = s => { throw new InvalidOperationException("Lite.GetCleanName is not set"); };
 
+        public static bool AlreadySet { get; private set; }
         public static void SetTypeNameCallbacks(Func<Type, string> getCleanName, Func<string, Type> tryGetType)
         {
             TypeEntity.GetCleanName = getCleanName;
             TypeEntity.TryGetType = tryGetType;
+
+            AlreadySet = true;
         }
 
-        public static void SetTypeDNCallbacks(Func<Type, TypeEntity> toTypeEntity, Func<TypeEntity, Type> toType)
+        public static void SetTypeEntityCallbacks(Func<Type, TypeEntity> toTypeEntity, Func<TypeEntity, Type> toType)
         {
-            TypeEntity.ToTypeDNFunc = toTypeEntity;
+            TypeEntity.ToTypeEntityFunc = toTypeEntity;
             TypeEntity.ToTypeFunc = toType;
         }
     }
@@ -72,7 +77,7 @@ namespace Signum.Entities.Basics
 
         public static TypeEntity ToTypeEntity(this Type type)
         {
-            return TypeEntity.ToTypeDNFunc(type);
+            return TypeEntity.ToTypeEntityFunc(type);
         }
     }
 }

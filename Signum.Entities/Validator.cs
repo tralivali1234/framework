@@ -13,6 +13,21 @@ namespace Signum.Entities
 {
     public static class Validator
     {
+        static readonly ThreadVariable<bool> inModelBinderVariable = Statics.ThreadVariable<bool>("inModelBinder");
+        public static bool InModelBinder
+        {
+            get { return inModelBinderVariable.Value; }
+        }
+
+        internal static IDisposable ModelBinderScope()
+        {
+            var old = inModelBinderVariable.Value;
+            inModelBinderVariable.Value = true;
+            return new Disposable(() => inModelBinderVariable.Value = false);
+        }
+
+        public static Func<ModifiableEntity, PropertyInfo, string> GlobalValidation { get; set; }
+
         static Polymorphic<Dictionary<string, IPropertyValidator>> validators =
             new Polymorphic<Dictionary<string, IPropertyValidator>>(PolymorphicMerger.InheritDictionary, typeof(ModifiableEntity));
 
@@ -38,6 +53,8 @@ namespace Signum.Entities
 
             validators.SetDefinition(typeof(T), dic);
         }
+
+  
 
         public static PropertyValidator<T> OverridePropertyValidator<T>(Expression<Func<T, object>> property) where T : ModifiableEntity
         {
@@ -97,6 +114,24 @@ namespace Signum.Entities
 
             return validators.GetValue(type);
         }
+
+        public static void AllValidatorsApplicable<T>(Func<T, bool> condition)
+            where T : ModifiableEntity
+        {
+
+            foreach (PropertyValidator<T> item in Validator.GetPropertyValidators(typeof(T)).Values)
+            {
+                if (item.IsApplicable == null)
+                    item.IsApplicable = condition;
+                else
+                {
+                    var old = item.IsApplicable;
+                    item.IsApplicable = m => old(m) && condition(m);
+                }
+            }
+
+            
+        }
     }
 
     public interface IPropertyValidator
@@ -115,10 +150,10 @@ namespace Signum.Entities
         public PropertyInfo PropertyInfo { get; private set; }
         public List<ValidatorAttribute> Validators { get; private set; }
 
-        public Func<T, bool> IsAplicable { get; set; }
-        public Func<T, bool> IsAplicablePropertyValidation { get; set; }
-        public Func<T, bool> IsAplicableExternalPropertyValidation { get; set; }
-        public Func<T, bool> IsAplicableStaticPropertyValidation { get; set; }
+        public Func<T, bool> IsApplicable { get; set; }
+        public Func<T, bool> IsApplicablePropertyValidation { get; set; }
+        public Func<T, bool> IsApplicableParentChildPropertyValidation { get; set; }
+        public Func<T, bool> IsApplicableStaticPropertyValidation { get; set; }
 
         public Func<T, PropertyInfo, string> StaticPropertyValidation { get; set; }
 
@@ -140,7 +175,7 @@ namespace Signum.Entities
 
         public string PropertyCheck(T entity)
         {
-            if (IsAplicable != null && !IsAplicable(entity))
+            if (IsApplicable != null && !IsApplicable(entity))
                 return null;
 
             if (Validators.Count > 0)
@@ -157,25 +192,36 @@ namespace Signum.Entities
             }
 
             //Internal Validation
-            if (IsAplicablePropertyValidation == null || IsAplicablePropertyValidation(entity))
+            if (IsApplicablePropertyValidation == null || IsApplicablePropertyValidation(entity))
             {
                 string result = entity.PropertyValidation(PropertyInfo);
                 if (result != null)
                     return result;
             }
 
-            //External Validation
-            if (IsAplicableExternalPropertyValidation == null || IsAplicableExternalPropertyValidation(entity))
+            //Parent Validation
+            if (IsApplicableParentChildPropertyValidation == null || IsApplicableParentChildPropertyValidation(entity))
             {
-                string result = entity.OnExternalPropertyValidation(PropertyInfo);
+                string result = entity.OnParentChildPropertyValidation(PropertyInfo);
                 if (result != null)
                     return result;
             }
 
             //Static validation
-            if (StaticPropertyValidation != null && (IsAplicableStaticPropertyValidation == null || IsAplicableStaticPropertyValidation(entity)))
+            if (StaticPropertyValidation != null && (IsApplicableStaticPropertyValidation == null || IsApplicableStaticPropertyValidation(entity)))
             {
                 foreach (var item in StaticPropertyValidation.GetInvocationListTyped())
+                {
+                    string result = item(entity, PropertyInfo);
+                    if (result != null)
+                        return result;
+                }
+            }
+
+            //Global validation
+            if (Validator.GlobalValidation != null)
+            {
+                foreach (var item in Validator.GlobalValidation.GetInvocationListTyped())
                 {
                     string result = item(entity, PropertyInfo);
                     if (result != null)

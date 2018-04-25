@@ -10,7 +10,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Signum.Engine</RootNamespace>
     <AssemblyName>Signum.Engine</AssemblyName>
-    <TargetFrameworkVersion>v4.6</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <StartupObject>
     </StartupObject>
@@ -61,9 +61,12 @@
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Microsoft.SqlServer.Types, Version=10.0.0.0, Culture=neutral, PublicKeyToken=89845dcd8080cc91, processorArchitecture=MSIL">
+    <Reference Include="Microsoft.SqlServer.Types, Version=14.0.0.0, Culture=neutral, PublicKeyToken=89845dcd8080cc91, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Microsoft.SqlServer.Types.14.0.314.76\lib\net40\Microsoft.SqlServer.Types.dll</HintPath>
       <Private>True</Private>
-      <HintPath>..\..\packages\HashFoo.SqlServer.SpatialTypes.10.0.0.0\lib\net40\Microsoft.SqlServer.Types.dll</HintPath>
+    </Reference>
+    <Reference Include="Signum.Analyzer">
+      <HintPath>..\Signum.Analyzer\Binaries\Signum.Analyzer.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core">
@@ -71,6 +74,9 @@
     </Reference>
     <Reference Include="System.ServiceModel">
       <RequiredTargetFramework>3.0</RequiredTargetFramework>
+    </Reference>
+    <Reference Include="System.ValueTuple, Version=4.0.2.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.ValueTuple.4.4.0\lib\net461\System.ValueTuple.dll</HintPath>
     </Reference>
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml.Linq">
@@ -88,8 +94,13 @@
     </Compile>
     <Compile Include="Administrator.cs" />
     <Compile Include="Basics\ExceptionLogic.cs" />
+    <Compile Include="Basics\PropertyRouteLogic.cs" />
+    <Compile Include="Basics\QueryLogic.cs" />
     <Compile Include="Basics\SemiSymbolLogic.cs" />
+    <Compile Include="BulkInserter.cs" />
     <Compile Include="CodeGeneration\CodeGenerator.cs" />
+    <Compile Include="CodeGeneration\ReactCodeConverter.cs" />
+    <Compile Include="CodeGeneration\ReactCodeGenerator.cs" />
     <Compile Include="CodeGeneration\WindowsCodeGenerator.cs" />
     <Compile Include="CodeGeneration\WebCodeGenerator.cs" />
     <Compile Include="CodeGeneration\LogicCodeGenerator.cs" />
@@ -100,6 +111,7 @@
     <Compile Include="Connection\SqlConnector.cs" />
     <Compile Include="Connection\Transaction.cs" />
     <Compile Include="Connection\UserConnections.cs" />
+    <Compile Include="Patterns\DeletePart.cs" />
     <Compile Include="DynamicQuery\AutoDynamicQuery.cs" />
     <Compile Include="DynamicQuery\DynamicQuery.cs" />
     <Compile Include="DynamicQuery\ColumnDescriptionFactory.cs" />
@@ -115,6 +127,7 @@
     <Compile Include="Engine\Synchronizer.cs" />
     <Compile Include="ExecutionContext.cs" />
     <Compile Include="GlobalLazy.cs" />
+    <Compile Include="LinqExpandHints.cs" />
     <Compile Include="Linq\AliasGenerator.cs" />
     <Compile Include="Linq\DbExpressions.Sql.cs" />
     <Compile Include="Linq\DbQueryProvider.cs" />
@@ -165,6 +178,7 @@
     <Compile Include="Operations\OperationLogic.cs" />
     <Compile Include="Operations\Typle.cs" />
     <Compile Include="Retriever.cs" />
+    <Compile Include="Schema\FluentInclude.cs" />
     <Compile Include="Schema\ObjectName.cs" />
     <Compile Include="Schema\Schema.cs" />
     <Compile Include="Schema\Schema.Delete.cs" />
@@ -181,7 +195,8 @@
     <Compile Include="Engine\SqlBuilder.cs" />
     <Compile Include="Schema\UniqueIndex.cs" />
     <Compile Include="ServerBasic.cs" />
-    <Compile Include="Basics\TypesLogic.cs" />
+    <Compile Include="Basics\TypeLogic.cs" />
+    <Compile Include="Patterns\VirtualMList.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Administrator.md" />
@@ -189,8 +204,14 @@
     <None Include="CodeGeneration\EntityCodeGenerator.md" />
     <None Include="CodeGeneration\LegacyDatabase.AdventureWorks.md" />
     <None Include="CodeGeneration\LogicCodeGenerator.md" />
+    <None Include="CodeGeneration\ReactCodeConverter.md" />
+    <None Include="CodeGeneration\ReactCodeGenerator.md" />
     <None Include="CodeGeneration\WebCodeGenerator.md" />
     <None Include="CodeGeneration\WindowsCodeGenerator.md" />
+    <None Include="Connection\Connector.md" />
+    <None Include="Connection\Executor.md" />
+    <None Include="Connection\Transaction.md" />
+    <None Include="Connection\UserConnections.md" />
     <None Include="Database.Delete.md" />
     <None Include="Database.md" />
     <None Include="Database.Query.md" />
@@ -199,6 +220,8 @@
     <None Include="Database.UnsafeDelete.md" />
     <None Include="Database.UnsafeInsert.md" />
     <None Include="Database.UnsafeUpdate.md" />
+    <None Include="DynamicQuery\DynamicQueries.md" />
+    <None Include="Engine\SqlPreCommand.md" />
     <None Include="EntityCache.md" />
     <None Include="index.mdi" />
     <None Include="Introduction.md" />
@@ -212,21 +235,21 @@
     <None Include="Linq\Linq.SelectMany.md" />
     <None Include="Linq\Linq.SqlFunctions.md" />
     <None Include="Linq\Linq.TypeMismatch.md" />
-    <None Include="Operations\Operations.cd" />
     <None Include="Operations\Operations.md" />
     <None Include="packages.config" />
+    <None Include="Schema\FluentInclude.md" />
     <None Include="Schema\EntityEvents.md" />
     <None Include="Schema\Schema.md" />
     <None Include="Schema\Schema.cd" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Signum.Entities\Signum.Entities.csproj">
-      <Project>{F2B51D08-498D-4C9F-8112-9521A7762B02}</Project>
+      <Project>{f2b51d08-498d-4c9f-8112-9521a7762b02}</Project>
       <Name>Signum.Entities</Name>
       <Private>True</Private>
     </ProjectReference>
     <ProjectReference Include="..\Signum.Utilities\Signum.Utilities.csproj">
-      <Project>{F7D3F72D-741D-4F67-8CF8-CD41B9035FED}</Project>
+      <Project>{f7d3f72d-741d-4f67-8cf8-cd41b9035fed}</Project>
       <Name>Signum.Utilities</Name>
     </ProjectReference>
   </ItemGroup>
@@ -246,9 +269,6 @@
       <ProductName>Windows Installer 3.1</ProductName>
       <Install>true</Install>
     </BootstrapperPackage>
-  </ItemGroup>
-  <ItemGroup>
-    <Folder Include="Docs\" />
   </ItemGroup>
   <ItemGroup>
     <Analyzer Include="..\Signum.Analyzer\Binaries\Signum.Analyzer.dll" />

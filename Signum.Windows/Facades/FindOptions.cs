@@ -30,65 +30,17 @@ namespace Signum.Windows
         }
     }
 
-
-    public class QueryGroupOptions
-    {
-        public object QueryName { get; set; }
-
-        public QueryGroupOptions() { }
-        public QueryGroupOptions(object queryName)
-        {
-            this.QueryName = queryName;
-        }
-
-        List<FilterOption> filterOptions = new List<FilterOption>();
-        public List<FilterOption> FilterOptions
-        {
-            get { return filterOptions; }
-            set { this.filterOptions = value; }
-        }
-
-        List<OrderOption> orderOptions = new List<OrderOption>();
-        public List<OrderOption> OrderOptions
-        {
-            get { return orderOptions; }
-            set { this.orderOptions = value; }
-        }
-
-        List<ColumnOption> columnOptions = new List<ColumnOption>();
-        public List<ColumnOption> ColumnOptions
-        {
-            get { return columnOptions; }
-            set { this.columnOptions = value; }
-        }
-    }
-
     public class QueryOptions
     {
         public static Pagination DefaultPagination = new Pagination.Paginate(50, 1);
 
+
         public object QueryName { get; set; }
+        public bool GroupResults { get; set; }
 
-        List<FilterOption> filterOptions = new List<FilterOption>();
-        public List<FilterOption> FilterOptions
-        {
-            get { return filterOptions; }
-            set { this.filterOptions = value; }
-        }
-
-        List<OrderOption> orderOptions = new List<OrderOption>();
-        public List<OrderOption> OrderOptions
-        {
-            get { return orderOptions; }
-            set { this.orderOptions = value; }
-        }
-
-        List<ColumnOption> columnOptions = new List<ColumnOption>();
-        public List<ColumnOption> ColumnOptions
-        {
-            get { return columnOptions; }
-            set { this.columnOptions = value; }
-        }
+        public List<FilterOption> FilterOptions { get; set;  } = new List<FilterOption>();
+        public List<OrderOption> OrderOptions { get; set; } = new List<OrderOption>();
+        public List<ColumnOption> ColumnOptions { get; set; } = new List<ColumnOption>();
 
         ColumnOptionsMode columnOptionsMode = ColumnOptionsMode.Add;
         public ColumnOptionsMode ColumnOptionsMode
@@ -118,7 +70,7 @@ namespace Signum.Windows
         public string EntityTypeTitle { get; set; }
         public string QueryNameTitle { get; set; }
 
-        internal abstract SearchMode GetSearchMode();
+        public abstract SearchMode GetSearchMode();
 
         public Action<SearchControl> InitializeSearchControl;
 
@@ -136,7 +88,7 @@ namespace Signum.Windows
             this.QueryName = queryName;
         }
 
-        internal override SearchMode GetSearchMode()
+        public override SearchMode GetSearchMode()
         {
             return SearchMode.Find;
         }
@@ -152,7 +104,7 @@ namespace Signum.Windows
 
         public bool ReturnIfOne { get; set; }
 
-        internal override SearchMode GetSearchMode()
+        public override SearchMode GetSearchMode()
         {
             return SearchMode.Find;
         }
@@ -176,7 +128,7 @@ namespace Signum.Windows
 
         public bool NavigateIfOne { get; set; }
 
-        internal override SearchMode GetSearchMode()
+        public override SearchMode GetSearchMode()
         {
             return SearchMode.Explore;
         }
@@ -278,7 +230,7 @@ namespace Signum.Windows
             if (Token == null || Value is Func<object>)
                 return;
 
-            if (Operation == FilterOperation.IsIn)
+            if (Operation.IsList())
             {
                 RealValue = Value;
                 return;

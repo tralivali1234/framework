@@ -30,3 +30,7 @@ _ReSharper*/
 *.js.map
 *.js
 Signum.Analyzer/packages/*
+Signum.React/node_modules/*.js
+*.ncrunchproject
+.vs/config/applicationhost.config
+*/.vs/*

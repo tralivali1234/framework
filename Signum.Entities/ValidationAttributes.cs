@@ -32,12 +32,17 @@ namespace Signum.Entities
 
         public int Order { get; set; }
 
+        public bool DisabledInModelBinder { get; set; } = false;
+
         //Descriptive information that continues the sentence: The property should {HelpMessage}
         //Used for documentation purposes only
         public abstract string HelpMessage { get; }
 
         public string Error(ModifiableEntity entity, PropertyInfo property, object value)
         {
+            if (DisabledInModelBinder && Validator.InModelBinder)
+                return null;
+
             if (IsApplicable != null && !IsApplicable(entity))
                 return null;
 
@@ -117,15 +122,20 @@ namespace Signum.Entities
             string val = (string)value;
 
             if (string.IsNullOrEmpty(val))
-                return AllowNulls ? null : ValidationMessage._0IsNotSet.NiceToString();
+            {
+                if (AllowNulls)
+                    return null;
+
+                return ValidationMessage._0IsNotSet.NiceToString();
+            }
 
             if(!MultiLine && (val.Contains('\n') || val.Contains('\r')))
-                return ValidationMessage._0ShouldNotHaveBreakLines.NiceToString();
+                return ValidationMessage._0ShouldHaveJustOneLine.NiceToString();
 
             if (!AllowLeadingSpaces && Regex.IsMatch(val, @"^\s+"))
                 return ValidationMessage._0ShouldNotHaveInitialSpaces.NiceToString();
 
-             if (!AllowLeadingSpaces && Regex.IsMatch(val, @"\s+$"))
+             if (!AllowTrailingSpaces && Regex.IsMatch(val, @"\s+$"))
                 return ValidationMessage._0ShouldNotHaveFinalSpaces.NiceToString();
 
             if (min == max && min != -1 && val.Length != min)
@@ -160,15 +170,20 @@ namespace Signum.Entities
 
     public abstract class RegexValidatorAttribute : ValidatorAttribute
     {
-        Regex regex;
+        Regex[] regexList;
         public RegexValidatorAttribute(Regex regex)
         {
-            this.regex = regex;
+            this.regexList = new[] { regex };
+        }
+
+        public RegexValidatorAttribute(Regex[] regex)
+        {
+            this.regexList = regex;
         }
 
         public RegexValidatorAttribute(string regexExpresion)
         {
-            this.regex = new Regex(regexExpresion);
+            this.regexList = new[] { new Regex(regexExpresion) };
         }
 
         public abstract string FormatName
@@ -182,7 +197,7 @@ namespace Signum.Entities
             if (string.IsNullOrEmpty(str))
                 return null;
 
-            if (regex.IsMatch(str))
+            if (regexList.Any(a => a.IsMatch(str)))
                 return null;
 
             return ValidationMessage._0DoesNotHaveAValid1Format.NiceToString().FormatWith("{0}", FormatName);
@@ -199,7 +214,7 @@ namespace Signum.Entities
 
     public class EMailValidatorAttribute : RegexValidatorAttribute
     {
-        public static readonly Regex EmailRegex = new Regex(
+        public static Regex EmailRegex = new Regex(
                           @"^(([^<>()[\]\\.,;:\s@\""]+"
                         + @"(\.[^<>()[\]\\.,;:\s@\""]+)*)|(\"".+\""))@"
                         + @"((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"
@@ -219,7 +234,7 @@ namespace Signum.Entities
 
     public class TelephoneValidatorAttribute : RegexValidatorAttribute
     {
-        public static readonly Regex TelephoneRegex = new Regex(@"^((\+|00)\d\d)? *(\([ 0-9]+\))? *[0-9][ \-\.0-9]+$");
+        public static Regex TelephoneRegex = new Regex(@"^((\+)\p{Nd}\p{Nd})? *(\([ \p{Nd}]+\))? *[\p{Nd}][ \-\.\p{Nd}]+$");
 
         public TelephoneValidatorAttribute()
             : base(TelephoneRegex)
@@ -234,7 +249,7 @@ namespace Signum.Entities
 
     public class MultipleTelephoneValidatorAttribute : RegexValidatorAttribute
     {
-        public static readonly Regex MultipleTelephoneRegex = new Regex(@"^((\+|00)\d\d)? *(\([ 0-9]+\))? *[0-9][ \-\.0-9]+(,\s*((\+|00)\d\d)? *(\([ 0-9]+\))? *[0-9][ \-\.0-9]+)*");
+        public static Regex MultipleTelephoneRegex = new Regex(@"^((\+)\p{Nd}\p{Nd})? *(\([ \p{Nd}]+\))? *[\p{Nd}][ \-\.\p{Nd}]+(,\s*((\+)\p{Nd}\p{Nd})? *(\([ \p{Nd}]+\))? *[\p{Nd}][ \-\.\p{Nd}]+)*");
 
         public MultipleTelephoneValidatorAttribute()
             : base(MultipleTelephoneRegex)
@@ -247,9 +262,37 @@ namespace Signum.Entities
         }
     }
 
+    public class IdentifierValidatorAttribute : RegexValidatorAttribute
+    {
+        public static Regex PascalAscii = new Regex(@"^[A-Z[_a-zA-Z0-9]*$");
+        public static Regex Ascii = new Regex(@"^[_a-zA-Z[_a-zA-Z0-9]*$");
+        public static Regex International = new Regex(@"^[_\p{Ll}\p{Lu}\p{Lt}\p{Lo}\p{Nl}][_\p{Ll}\p{Lu}\p{Lt}\p{Lo}\p{Nl}\p{Nd}]*$");
+
+        public IdentifierType type;
+        public IdentifierValidatorAttribute(IdentifierType type)
+               : base(
+                     type == IdentifierType.PascalAscii ? PascalAscii : 
+                     type == IdentifierType.Ascii ? Ascii: 
+                     type == IdentifierType.International ? International : 
+                     null
+                     )
+        {
+            this.type = type;
+        }
+
+        public override string FormatName => this.type.ToString();
+    }
+
+    public enum IdentifierType
+    {
+        PascalAscii,
+        Ascii,
+        International
+    }
+
     public class NumericTextValidatorAttribute : RegexValidatorAttribute
     {
-        public static readonly Regex NumericTextRegex = new Regex(@"^[0-9]*$");
+        public static Regex NumericTextRegex = new Regex(@"^[\p{Nd}]*$");
 
         public NumericTextValidatorAttribute()
             : base(NumericTextRegex)
@@ -264,7 +307,7 @@ namespace Signum.Entities
 
     public class URLValidatorAttribute : RegexValidatorAttribute
     {
-        public static readonly Regex URLRegex = new Regex(
+        public static Regex AbsoluteUrlRegex = new Regex(
               "^(https?://)"
             + "?(([0-9a-z_!~*'().&=+$%-]+: )?[0-9a-z_!~*'().&=+$%-]+@)?" //user@ 
             + @"(([0-9]{1,3}\.){3}[0-9]{1,3}" // IP- 199.194.52.184 
@@ -276,8 +319,23 @@ namespace Signum.Entities
             + "((/?)|" // a slash isn't required if there is no file name 
             + "(/[0-9a-z_!~*'().;?:@&=+$,%#-]+)+/?)$", RegexOptions.IgnoreCase);
 
-        public URLValidatorAttribute()
-            : base(URLRegex)
+        public static Regex SiteRelativeRegex = new Regex(
+            "^(/[0-9a-z_!~*'().;?:@&=+$,%#-]+)+$", RegexOptions.IgnoreCase);
+
+        public static Regex AspNetRelativeRegex = new Regex(
+            "^~(/[0-9a-z_!~*'().;?:@&=+$,%#-]+)+$", RegexOptions.IgnoreCase);
+
+
+        public static Regex DocumentRelativeRegex = new Regex(
+            "^[0-9a-z_!~*'().;?:@&=+$,%#-](/[0-9a-z_!~*'().;?:@&=+$,%#-]+)+$", RegexOptions.IgnoreCase);
+
+        public URLValidatorAttribute(bool absolute = true, bool siteRelative = false, bool aspNetSiteRelative = false, bool documentRelative = false)
+            : base(new []{
+                absolute ? AbsoluteUrlRegex: null,
+                siteRelative ? SiteRelativeRegex: null,
+                aspNetSiteRelative ? AspNetRelativeRegex: null,
+                documentRelative ? DocumentRelativeRegex: null,
+            }.NotNull().ToArray())
         {
         }
 
@@ -289,9 +347,9 @@ namespace Signum.Entities
 
     public class FileNameValidatorAttribute : ValidatorAttribute
     {
-        public static readonly char[] InvalidCharts = Path.GetInvalidPathChars();
+        public static char[] InvalidCharts = Path.GetInvalidPathChars();
 
-        static readonly Regex invalidChartsRegex = new Regex("[" + Regex.Escape(new string(Path.GetInvalidFileNameChars())) + "]");
+        static Regex invalidChartsRegex = new Regex("[" + Regex.Escape(new string(Path.GetInvalidFileNameChars())) + "]");
 
         public FileNameValidatorAttribute()
         {
@@ -409,7 +467,7 @@ namespace Signum.Entities
             IComparable val = (IComparable)value;
 
             if (number.GetType() != value.GetType())
-                number = (IComparable)Convert.ChangeType(number, value.GetType()); // asi se hace solo una vez 
+                number = (IComparable)Convert.ChangeType(number, value.GetType()); // made just once
 
             bool ok = (ComparisonType == ComparisonType.EqualTo && val.CompareTo(number) == 0) ||
                       (ComparisonType == ComparisonType.DistinctTo && val.CompareTo(number) != 0) ||
@@ -523,7 +581,7 @@ namespace Signum.Entities
                 .Where(a => a.Count > 1)
                 .ToString(e => "{0} x {1}".FormatWith(e.Key, e.Count), ", ");
 
-            return errors;
+            return errors.DefaultText(null);
         }
     }
 
@@ -559,6 +617,17 @@ namespace Signum.Entities
         {
             get { return ValidationMessage.HaveANumberOfElements01.NiceToString().FormatWith(ComparisonType.NiceToString().FirstLower(), number.ToString()); }
         }
+    }
+
+    [DescriptionOptions(DescriptionOptions.Members)]
+    public enum ComparisonType
+    {
+        EqualTo,
+        DistinctTo,
+        GreaterThan,
+        GreaterThanOrEqualTo,
+        LessThan,
+        LessThanOrEqualTo,
     }
 
     public class DaysPrecissionValidatorAttribute : DateTimePrecissionValidatorAttribute
@@ -702,14 +771,14 @@ namespace Signum.Entities
 
     public class StringCaseValidatorAttribute : ValidatorAttribute
     {
-        private Case textCase;
-        public Case TextCase
+        private StringCase textCase;
+        public StringCase TextCase
         {
             get { return this.textCase; }
             set { this.textCase = value; }
         }
 
-        public StringCaseValidatorAttribute(Case textCase)
+        public StringCaseValidatorAttribute(StringCase textCase)
         {
             this.textCase = textCase;
         }
@@ -720,10 +789,10 @@ namespace Signum.Entities
 
             string str = (string)value;
 
-            if ((this.textCase == Case.Uppercase) && (str != str.ToUpper()))
+            if ((this.textCase == StringCase.Uppercase) && (str != str.ToUpper()))
                 return ValidationMessage._0HasToBeUppercase.NiceToString();
 
-            if ((this.textCase == Case.Lowercase) && (str != str.ToLower()))
+            if ((this.textCase == StringCase.Lowercase) && (str != str.ToLower()))
                 return ValidationMessage._0HasToBeLowercase.NiceToString();
 
             return null;
@@ -736,22 +805,13 @@ namespace Signum.Entities
     }
 
     [DescriptionOptions(DescriptionOptions.Members)]
-    public enum Case
+    public enum StringCase
     {
         Uppercase,
         Lowercase
     }
     
-    [DescriptionOptions(DescriptionOptions.Members)]
-    public enum ComparisonType
-    {
-        EqualTo,
-        DistinctTo,
-        GreaterThan,
-        GreaterThanOrEqualTo,
-        LessThan,
-        LessThanOrEqualTo,
-    }
+   
 
     public class IsAssignableToValidatorAttribute : ValidatorAttribute
     {
@@ -779,6 +839,21 @@ namespace Signum.Entities
         public override string HelpMessage
         {
             get { return ValidationMessage.BeA0_G.NiceToString().ForGenderAndNumber(Type.GetGender()).FormatWith(Type.NiceName()); }
+        }
+    }
+
+    public class IpValidatorAttribute : RegexValidatorAttribute
+    {
+        public static Regex IpRegex = new Regex(@"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b");
+
+        public IpValidatorAttribute()
+            : base(IpRegex)
+        {
+        }
+
+        public override string FormatName
+        {
+            get { return "IP"; }
         }
     }
 
@@ -891,6 +966,8 @@ namespace Signum.Entities
     {
         [Description("{0} does not have a valid {1} format")]
         _0DoesNotHaveAValid1Format,
+        [Description("'{0}' does not have a valid {1} identifier format")]
+        _0DoesNotHaveAValid1IdentifierFormat,
         [Description("{0} has an invalid format")]
         _0HasAnInvalidFormat,
         [Description("{0} has more than {1} decimal places")]
@@ -953,8 +1030,8 @@ namespace Signum.Entities
         [Description("or be null")]
         OrBeNull,
         Telephone,
-        [Description("{0} should not have break lines")]
-        _0ShouldNotHaveBreakLines,
+        [Description("{0} should have just one line")]
+        _0ShouldHaveJustOneLine,
         [Description("{0} should not have initial spaces")]
         _0ShouldNotHaveInitialSpaces,
         [Description("{0} should not have final spaces")]
@@ -967,19 +1044,29 @@ namespace Signum.Entities
         TheLengthOf0HasToBeLesserOrEqualTo1,
         [Description("The number of {0} is being multiplied by {1}")]
         TheNumberOf0IsBeingMultipliedBy1,
-        [Description("The number of elements of {0} has to be {0} {1}")]
+        [Description("The rows are being grouped by {0}")]
+        TheRowsAreBeingGroupedBy0,
+        [Description("The number of elements of {0} has to be {1} {2}")]
         TheNumberOfElementsOf0HasToBe12,
         [Description("Type {0} not allowed")]
         Type0NotAllowed,
 
         [Description("{0} is mandatory when {1} is not set")]
         _0IsMandatoryWhen1IsNotSet,
+        [Description("{0} is mandatory when {1} is not set to {2}.")]
+        _0IsMandatoryWhen1IsNotSetTo2,
         [Description("{0} is mandatory when {1} is set")]
         _0IsMandatoryWhen1IsSet,
+        [Description("{0} is mandatory when {1} is set to {2}.")]
+        _0IsMandatoryWhen1IsSetTo2,
         [Description("{0} should be null when {1} is not set")]
         _0ShouldBeNullWhen1IsNotSet,
+        [Description("{0} should be null when {1} is not set to {2}.")]
+        _0ShouldBeNullWhen1IsNotSetTo2,
         [Description("{0} should be null when {1} is set")]
         _0ShouldBeNullWhen1IsSet,
+        [Description("{0} should be null when {1} is set to {2}.")]
+        _0ShouldBeNullWhen1IsSetTo2,
         [Description("{0} should be null")]
         _0ShouldBeNull,
         [Description("{0} should be a date in the past")]
@@ -987,7 +1074,23 @@ namespace Signum.Entities
         BeInThePast,
         [Description("{0} should be greater than {1}")]
         _0ShouldBeGreaterThan1,
+        [Description("{0} should be greater than or equal {1}")]
+        _0ShouldBeGreaterThanOrEqual1,
+        [Description("{0} should be less than {1}")]
+        _0ShouldBeLessThan1,
+        [Description("{0} should be less than or equal {1}")]
+        _0ShouldBeLessThanOrEqual1,
         [Description("{0} has a precission of {1} instead of {2}")]
         _0HasAPrecissionOf1InsteadOf2,
+        [Description("{0} should be of type {1}")]
+        _0ShouldBeOfType1,
+        [Description("{0} should not be of type {1}")]
+        _0ShouldNotBeOfType1,
+        [Description("{0} and {1} can not be set at the same time")]
+        _0And1CanNotBeSetAtTheSameTime,
+        [Description("{0} and {1} and {2} can not be set at the same time")]
+        _0And1And2CanNotBeSetAtTheSameTime,
+        [Description("{0} have {1} elements, but allowed only {2}")]
+        _0Have1ElementsButAllowedOnly2,
     }
 }

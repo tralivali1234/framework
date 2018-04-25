@@ -14,11 +14,19 @@ using Signum.Utilities.DataStructures;
 
 namespace Signum.Entities
 {
+    public enum ShowIgnoredFields
+    {
+        Yes,
+        //VirtualMList
+        OnlyQueryables,
+        No,
+    }
+
     public static class ObjectDumper
     {
         public static HashSet<Type> IgnoreTypes = new HashSet<Type> { typeof(ExceptionEntity) };
 
-        public static string Dump(this object o, bool showIgnoredFields = false, bool showByteArrays = false)
+        public static string Dump(this object o, ShowIgnoredFields showIgnoredFields = ShowIgnoredFields.OnlyQueryables, bool showByteArrays = false)
         {
             using (HeavyProfiler.LogNoStackTrace("Dump"))
             {
@@ -38,10 +46,10 @@ namespace Signum.Entities
             HashSet<object> objects = new HashSet<Object>(ReferenceEqualityComparer<object>.Default);
             public StringBuilder Sb = new StringBuilder();
             int level = 0;
-            bool showIgnoredFields = false;
-            bool showByteArrays = false;
+            ShowIgnoredFields showIgnoredFields;
+            bool showByteArrays;
 
-            public DumpVisitor(bool showIgnoredFields, bool showByteArrays)
+            public DumpVisitor(ShowIgnoredFields showIgnoredFields, bool showByteArrays)
             {
                 this.showIgnoredFields = showIgnoredFields;
                 this.showByteArrays = showByteArrays;
@@ -127,7 +135,7 @@ namespace Signum.Entities
                 {
                     var l = o as Lite<Entity>;
                     Sb.Append("({0}, \"{1}\")".FormatWith((l.IdOrNull.HasValue ? l.Id.ToString() : "null"), l.ToString()));
-                    if (((Lite<Entity>)o).UntypedEntityOrNull == null)
+                    if (((Lite<Entity>)o).EntityOrNull == null)
                         return;
                 }
 
@@ -179,7 +187,7 @@ namespace Signum.Entities
                         }
                     }
                 }
-                else if (t.IsAnonymous())
+                else if (!typeof(ModifiableEntity).IsAssignableFrom(t))
                     foreach (var prop in t.GetProperties(BindingFlags.Instance | BindingFlags.Public))
                     {
                         DumpPropertyOrField(prop.PropertyType, prop.Name, prop.GetValue(o, null));
@@ -200,15 +208,25 @@ namespace Signum.Entities
                             DumpPropertyOrField(field.FieldType, GetFieldName(field), val);
                         }
 
-                        if (!showIgnoredFields && (field.HasAttribute<IgnoreAttribute>()) || (Reflector.TryFindPropertyInfo(field)?.HasAttribute<IgnoreAttribute>() == true))
-                            continue;
+                        var skip = this.showIgnoredFields == ShowIgnoredFields.Yes ? false :
+                            this.showIgnoredFields == ShowIgnoredFields.OnlyQueryables ? IsIgnored(field) && Reflector.TryFindPropertyInfo(field)?.HasAttribute<QueryablePropertyAttribute>() != true:
+                            this.showIgnoredFields == ShowIgnoredFields.No ? IsIgnored(field) :
+                            throw new InvalidOperationException("Unexpected ShowIgnoredFields");
 
-                        DumpPropertyOrField(field.FieldType, GetFieldName(field), field.GetValue(o));
+                        if (!skip)
+                        {
+                            DumpPropertyOrField(field.FieldType, GetFieldName(field), field.GetValue(o));
+                        }
                     }
 
                 level -= 1;
                 Sb.Append("}".Indent(level));
                 return;
+            }
+
+            private static bool IsIgnored(FieldInfo field)
+            {
+                return (field.HasAttribute<IgnoreAttribute>() || Reflector.TryFindPropertyInfo(field)?.HasAttribute<IgnoreAttribute>() == true);
             }
 
             private static string GetFieldName(FieldInfo field)

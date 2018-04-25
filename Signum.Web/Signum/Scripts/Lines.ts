@@ -219,7 +219,7 @@ export class EntityBase {
         if (this.creating != null)
             return this.creating(prefix, event);
 
-        return this.typeChooser(ti => ti.creable).then(type=> {
+        return this.typeChooser(ti => ti.creable).then<Entities.EntityValue> (type=> {
             if (!type)
                 return null;
 
@@ -276,9 +276,10 @@ export class EntityBase {
         if (this.viewing != null)
             return this.viewing(entityHtml, event);
 
-        var type = this.options.types.filter(t=> t.name == entityHtml.runtimeInfo.type)[0];
+        var type = this.options.types == null ? null :
+            this.options.types.filter(t => t.name == entityHtml.runtimeInfo.type)[0];
 
-        if (Navigator.isOpenNewWindow(event) || type.avoidPopup) {
+        if (Navigator.isOpenNewWindow(event) || type && type.avoidPopup) {
             if (this.options.navigate && !entityHtml.runtimeInfo.isNew)
                 Navigator.navigate(entityHtml.runtimeInfo, null, true);
             return null;
@@ -424,7 +425,7 @@ export class AjaxEntityAutocompleter implements EntityAutocompleter {
             this.lastXhr = $.ajax({
                 url: this.controllerUrl,
                 data: this.getData(term),
-                success: function (data: AutocompleteResult[]) {
+                success: (data: AutocompleteResult[]) => {
                     this.lastXhr = null;
                     var entities = data.map(item=> new Entities.EntityValue(new Entities.RuntimeInfo(item.type, item.id, false), item.text));
                     resolve(entities);
@@ -563,7 +564,7 @@ export class EntityDetail extends EntityBase {
         if (this.options.template)
             return Promise.resolve(this.getEmbeddedTemplate(prefix));
 
-        return this.typeChooser(t=>t.creable).then(type=> {
+        return this.typeChooser(t => t.creable).then<Entities.EntityValue>(type=> {
             if (!type)
                 return null;
 
@@ -696,7 +697,7 @@ export class EntityListBase extends EntityBase {
             return null;
         }).then(
             prefix => { this.freeReservedPrefix(itemPrefix); return prefix; },
-            error => { this.freeReservedPrefix(itemPrefix); throw error; return ""; });
+            (error): any => { this.freeReservedPrefix(itemPrefix); throw error; });
     }
 
     addEntitySpecific(entityValue: Entities.EntityValue, itemPrefix: string) {
@@ -822,7 +823,7 @@ export class EntityListBase extends EntityBase {
             return null;
         }).then(
             prefix => { prefixes.forEach(this.freeReservedPrefix); return prefix; },
-            error => { prefixes.forEach(this.freeReservedPrefix); throw error; return ""; });
+            (error): any => { prefixes.forEach(this.freeReservedPrefix); throw error; });
     }
 
     onFinding(prefix: string, event: MouseEvent): Promise<Entities.EntityValue> {
@@ -1086,7 +1087,7 @@ export class EntityListDetail extends EntityList {
 
             var promise = selContainer.children().length ? Promise.resolve<void>(null) :
                 Navigator.requestPartialView(new Entities.EntityHtml(selPrefix, Entities.RuntimeInfo.getFromPrefix(selPrefix), null), this.defaultViewOptions(null))
-                    .then<void>(e=> selContainer.html(e.html));
+                    .then<void>(e => { selContainer.html(e.html); });
 
             promise.then(() =>
             {
@@ -1112,7 +1113,7 @@ export class EntityListDetail extends EntityList {
         if (this.options.template)
             return Promise.resolve(this.getEmbeddedTemplate(prefix));
 
-        return this.typeChooser(t => t.creable).then(type=> {
+        return this.typeChooser(t => t.creable).then<Entities.EntityValue>(type=> {
             if (type == null)
                 return null;
 
@@ -1189,7 +1190,7 @@ export class EntityRepeater extends EntityListBase {
         if (this.options.template)
             return Promise.resolve(this.getEmbeddedTemplate(prefix));
 
-        return this.typeChooser(t => t.creable).then(type=> {
+        return this.typeChooser(t => t.creable).then<Entities.EntityValue>(type=> {
             if (type == null)
                 return null;
 

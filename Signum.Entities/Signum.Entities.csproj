@@ -10,7 +10,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Signum.Entities</RootNamespace>
     <AssemblyName>Signum.Entities</AssemblyName>
-    <TargetFrameworkVersion>v4.6</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <StartupObject>
     </StartupObject>
@@ -61,6 +61,10 @@
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="Microsoft.SqlServer.Types, Version=14.0.0.0, Culture=neutral, PublicKeyToken=89845dcd8080cc91, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Microsoft.SqlServer.Types.14.0.314.76\lib\net40\Microsoft.SqlServer.Types.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core">
       <RequiredTargetFramework>3.5</RequiredTargetFramework>
@@ -73,6 +77,9 @@
     <Reference Include="System.ServiceModel">
       <RequiredTargetFramework>3.0</RequiredTargetFramework>
     </Reference>
+    <Reference Include="System.ValueTuple, Version=4.0.2.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.ValueTuple.4.4.0\lib\net461\System.ValueTuple.dll</HintPath>
+    </Reference>
     <Reference Include="System.Xml" />
     <Reference Include="System.Xml.Linq" />
   </ItemGroup>
@@ -84,9 +91,13 @@
     <Compile Include="Basics\IUserEntity.cs" />
     <Compile Include="Basics\Operation.cs" />
     <Compile Include="Basics\OperationLog.cs" />
+    <Compile Include="Basics\PropertyRouteEntity.cs" />
+    <Compile Include="Basics\QueryEntity.cs" />
     <Compile Include="Basics\SemiSymbol.cs" />
     <Compile Include="DynamicQuery\Tokens\AggregateToken.cs" />
-    <Compile Include="DynamicQuery\Tokens\BagPropertyToken.cs" />
+    <Compile Include="DynamicQuery\Tokens\SystemTimeToken.cs" />
+    <Compile Include="DynamicQuery\Tokens\ExtensionDictionaryToken.cs" />
+    <Compile Include="DynamicQuery\Tokens\HasValueToken.cs" />
     <Compile Include="DynamicQuery\Tokens\DecimalSpecialTokens.cs" />
     <Compile Include="DynamicQuery\Tokens\EntityToStringToken.cs" />
     <Compile Include="DynamicQuery\Tokens\CountToken.cs" />
@@ -126,9 +137,11 @@
     <Compile Include="Reflection\GraphExplorer.cs" />
     <Compile Include="Reflection\Reflector.cs" />
     <Compile Include="Reflection\StringHashEncoder.cs" />
+    <Compile Include="Reflection\EntityStructuralEqualityComparer.cs" />
     <Compile Include="Services\ExceptionMarshalling.cs" />
     <Compile Include="Services\IOperationServer.cs" />
     <Compile Include="Basics\Symbol.cs" />
+    <Compile Include="SystemTime.cs" />
     <Compile Include="TimeZoneManager.cs" />
     <Compile Include="TypeAttributes.cs" />
     <Compile Include="Validator.cs" />
@@ -166,7 +179,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Signum.Utilities\Signum.Utilities.csproj">
-      <Project>{F7D3F72D-741D-4F67-8CF8-CD41B9035FED}</Project>
+      <Project>{f7d3f72d-741d-4f67-8cf8-cd41b9035fed}</Project>
       <Name>Signum.Utilities</Name>
     </ProjectReference>
   </ItemGroup>
@@ -187,6 +200,10 @@
     <Content Include="Translations\Signum.Entities.it.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Translations\Signum.Entities.nl.xml" />
+    <Content Include="Translations\Signum.Entities.fa.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Translations\Signum.Entities.pt.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -203,6 +220,7 @@
     <None Include="Lite.md" />
     <None Include="Mixin.md" />
     <None Include="MList.md" />
+    <None Include="packages.config" />
     <None Include="PrimaryKey.md" />
     <None Include="PropertyAttributes.md" />
     <None Include="PropertyRoute.md" />

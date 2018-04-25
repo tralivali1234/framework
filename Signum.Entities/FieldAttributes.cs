@@ -12,9 +12,10 @@ using Signum.Utilities;
 using Signum.Utilities.Reflection;
 using System.Reflection;
 using Signum.Entities.Reflection;
-using System.ComponentModel;  
+using System.ComponentModel;
 using System.Collections;
 using Signum.Utilities.ExpressionTrees;
+using Signum.Entities.Basics;
 
 namespace Signum.Entities
 {
@@ -86,15 +87,19 @@ namespace Signum.Entities
 
                 if(t.IsInterface || t.IsAbstract)
                 {
-                    message += @"\r\nConsider writing something like this in your Starter class: 
-sb.Schema.Settings.FieldAttributes(({0} a) => a.{1}).Replace(new ImplementedByAttribute(typeof(YourConcrete{2})));"
-                    .FormatWith(route.RootType.TypeName(), route.PropertyString().Replace("/", ".First()."), t.TypeName());
+                    message += @"\r\n" + ConsiderMessage(route, "typeof(YourConcrete" + t.TypeName() + ")");
                 }
 
                 throw new InvalidOperationException(message);
             }
 
             return imp.Value;
+        }
+
+        internal static string ConsiderMessage(PropertyRoute route, string targetTypes)
+        {
+            return $@"Consider writing something like this in your Starter class: 
+sb.Schema.Settings.FieldAttributes(({route.RootType.TypeName()} a) => a.{route.PropertyString().Replace("/", ".First().")}).Replace(new ImplementedByAttribute({targetTypes}))";
         }
 
         public static Implementations ByAll { get { return new Implementations(); } }
@@ -139,6 +144,15 @@ sb.Schema.Settings.FieldAttributes(({0} a) => a.{1}).Replace(new ImplementedByAt
             return null;
         }
 
+        public string Key()
+        {
+            if (IsByAll)
+                return "[ALL]";
+
+            return Types.ToString(TypeEntity.GetCleanName, ", ");
+        }
+
+
         public override string ToString()
         {
             if (IsByAll)
@@ -171,9 +185,8 @@ sb.Schema.Settings.FieldAttributes(({0} a) => a.{1}).Replace(new ImplementedByAt
             arrayOrType = str == "ALL" ? null :
                 str.Split('|').Select(Type.GetType).ToArray();
 
-            var array = arrayOrType as Type[];
-            if(array != null && array.Length == 1)
-                arrayOrType = array[0]; 
+            if (arrayOrType is Type[] array && array.Length == 1)
+                arrayOrType = array[0];
         }
 
         public void GetObjectData(SerializationInfo info, StreamingContext context)
@@ -224,6 +237,11 @@ sb.Schema.Settings.FieldAttributes(({0} a) => a.{1}).Replace(new ImplementedByAt
     {
     }
 
+
+    /// <summary>
+    /// Very rare. Reference types (classes) or Nullable are already nullable in the database.
+    /// This attribute is only necessary in the case an entity field is not-nullable but you can not make the DB column nullable because of legacy data, or cycles in a graph of entities.
+    /// </summary>
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
     public sealed class NullableAttribute : Attribute
     {
@@ -269,10 +287,12 @@ sb.Schema.Settings.FieldAttributes(({0} a) => a.{1}).Replace(new ImplementedByAt
         {
             get { return scale.HasValue; }
         }
-
+        
         public string UserDefinedTypeName { get; set; }
 
         public string Default { get; set; }
+
+        public string Collation { get; set; }
 
         public const string NewId = "NEWID()";
         public const string NewSequentialId = "NEWSEQUENTIALID()";
@@ -345,9 +365,13 @@ sb.Schema.Settings.FieldAttributes(({0} a) => a.{1}).Replace(new ImplementedByAt
         public string DatabaseName { get; set; }
         public string ServerName { get; set; }
 
-        public TableNameAttribute(string name)
+        public TableNameAttribute(string fullName)
         {
-            this.Name = name;
+            var parts = fullName.Split('.');
+            this.Name = parts.ElementAtOrDefault(parts.Length - 1).Trim('[', ']');
+            this.SchemaName = parts.ElementAtOrDefault(parts.Length - 2)?.Trim('[', ']');
+            this.DatabaseName = parts.ElementAtOrDefault(parts.Length - 3)?.Trim('[', ']');
+            this.ServerName = parts.ElementAtOrDefault(parts.Length - 4)?.Trim('[', ']');
         }
     }
 
@@ -364,6 +388,17 @@ sb.Schema.Settings.FieldAttributes(({0} a) => a.{1}).Replace(new ImplementedByAt
         {
             this.HasTicks = hasTicks;
         }
+    }
+
+    /// <summary>
+    /// Activates SQL Server 2016 Temporal Tables
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Field | AttributeTargets.Property /*MList fields*/, Inherited = true, AllowMultiple = false)]
+    public sealed class SystemVersionedAttribute : Attribute
+    {
+        public string TemporalTableName { get; set; }
+        public string StartDateColumnName { get; set; } = "SysStartDate";
+        public string EndDateColumnName { get; set; } = "SysEndDate";
     }
 
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]

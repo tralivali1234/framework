@@ -18,14 +18,17 @@ using System.Data;
 using System.Globalization;
 using System.Diagnostics;
 using System.Collections.Concurrent;
+using Signum.Entities;
 
 namespace Signum.Entities
 {
-    [Serializable, DescriptionOptions(DescriptionOptions.All)]
+    [Serializable, DescriptionOptions(DescriptionOptions.All), InTypeScript(false)]
     public abstract class Entity : ModifiableEntity, IEntity
     {
         [Ignore, DebuggerBrowsable(DebuggerBrowsableState.Never)]
-        internal PrimaryKey? id = null;
+        internal PrimaryKey? id;
+
+
         [Ignore, DebuggerBrowsable(DebuggerBrowsableState.Never)]
         protected internal string toStr; //for queries and lites on entities with non-expression ToString 
 
@@ -38,7 +41,7 @@ namespace Signum.Entities
                     throw new InvalidOperationException("{0} is new and has no Id".FormatWith(this.GetType().Name));
                 return id.Value;
             }
-            internal set { id = value; }
+            internal set { id = value; } //Use SetId method to change the Id
         }
 
         [HiddenProperty]
@@ -57,7 +60,7 @@ namespace Signum.Entities
         }
 
         [Ignore, DebuggerBrowsable(DebuggerBrowsableState.Never)]
-        internal long ticks = 0;
+        internal long ticks;
         [HiddenProperty]
         public long Ticks
         {
@@ -96,25 +99,24 @@ namespace Signum.Entities
             if(obj == null)
                 return false;
 
-            Entity ident = obj as Entity;
-            if (ident != null && ident.GetType() == this.GetType() && this.id != null && this.id == ident.id)
+            if (obj is Entity ident && ident.GetType() == this.GetType() && this.id != null && this.id == ident.id)
                 return true;
 
             return false;
         }
 
-        public virtual Dictionary<Guid, Dictionary<string, string>> EntityIntegrityCheck()
+        public virtual Dictionary<Guid, IntegrityCheck> EntityIntegrityCheck()
         {
             using (Mixins.OfType<CorruptMixin>().Any(c => c.Corrupt) ? Corruption.AllowScope() : null)
             {
-                return IdentifiableIntegrityCheckBase();
+                return EntityIntegrityCheckBase();
             }
         }
 
-        internal virtual Dictionary<Guid, Dictionary<string, string>> IdentifiableIntegrityCheckBase()
+        internal virtual Dictionary<Guid, IntegrityCheck> EntityIntegrityCheckBase()
         {
-            using (HeavyProfiler.LogNoStackTrace("IdentifiableIntegrityCheck", () => GetType().Name))
-                return GraphExplorer.IdentifiableIntegrityCheck(GraphExplorer.FromRootIdentifiable(this));
+            using (HeavyProfiler.LogNoStackTrace("EntityIntegrityCheckBase", () => GetType().Name))
+                return GraphExplorer.EntityIntegrityCheck(GraphExplorer.FromRootEntity(this));
         }
 
         public override int GetHashCode()
@@ -133,6 +135,16 @@ namespace Signum.Entities
         readonly MixinEntity mixin;
         public M Mixin<M>() where M : MixinEntity
         {
+            var result = TryMixin<M>();
+            if (result != null)
+                return result;
+
+            throw new InvalidOperationException("Mixin {0} not declared for {1} in MixinDeclarations"
+                .FormatWith(typeof(M).TypeName(), GetType().TypeName()));
+        }
+
+        public M TryMixin<M>() where M : MixinEntity
+        {
             var current = mixin;
             while (current != null)
             {
@@ -141,8 +153,7 @@ namespace Signum.Entities
                 current = current.Next;
             }
 
-            throw new InvalidOperationException("Mixin {0} not declared for {1} in MixinDeclarations"
-                .FormatWith(typeof(M).TypeName(), GetType().TypeName()));
+            return null;
         }
 
         public MixinEntity GetMixin(Type mixinType)
@@ -198,6 +209,7 @@ namespace Signum.Entities
        
     }
 
+    [InTypeScript(false)]
     public interface IEntity : INotifyPropertyChanged, IDataErrorInfo, IRootEntity
     {
         PrimaryKey Id { get; }
@@ -229,13 +241,19 @@ namespace Signum.Entities
         public static T SetReadonly<T, V>(this T ident, Expression<Func<T, V>> readonlyProperty, V value)
              where T : ModifiableEntity
         {
+            return SetReadonly(ident, readonlyProperty, value, true);
+        }
+
+        public static T SetReadonly<T, V>(this T ident, Expression<Func<T, V>> readonlyProperty, V value, bool setSelfModified)
+             where T : ModifiableEntity
+        {
             var pi = ReflectionTools.BasePropertyInfo(readonlyProperty);
 
             Action<T, V> setter = ReadonlySetterCache<T>.Setter<V>(pi);
 
             setter(ident, value);
-
-            ident.SetSelfModified();
+            if (setSelfModified)
+                ident.SetSelfModified();
 
             return ident;
         }
@@ -250,7 +268,7 @@ namespace Signum.Entities
             }
         }
 
-        public static T SetNew<T>(this T ident, bool isNew = true)
+        public static T SetIsNew<T>(this T ident, bool isNew = true)
             where T : Entity
         {
             ident.IsNew = isNew;
@@ -264,6 +282,13 @@ namespace Signum.Entities
             if (ident is Entity)
                 ((Entity)(Modifiable)ident).IsNew = false;
             ident.Modified = ModifiedState.Clean;
+            return ident;
+        }
+
+        public static T SetModified<T>(this T ident)
+            where T : Modifiable
+        {
+            ident.Modified = ModifiedState.Modified;
             return ident;
         }
 

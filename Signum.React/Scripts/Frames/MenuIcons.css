@@ -1,0 +1,38 @@
+﻿.icon {
+    margin-left: 5px;
+    margin-right: 5px;
+    text-align: center;
+}
+
+body:not(.rtl) .dropdown-item .arrow-align {
+    float: right;
+    font-size: 11px;
+    margin-top: 3px;
+}
+
+body.rtl .dropdown-item .arrow-align {
+    float: left;
+    font-size: 11px;
+    margin-top: 3px;
+}
+
+.dropdown-menu span.icon {
+    display: inline-block;
+    margin-left: -8px;
+    margin-right: 8px;
+}
+
+.rtl .dropdown-menu span.icon {
+    margin-left: 8px;
+    margin-right: -8px;
+}
+
+.sidebar-nav .dropdown-menu span.icon {
+    margin-left: 0px;
+    margin-right: 8px;
+}
+
+.rtl .sidebar-nav li a span.icon {
+    margin-left: 8px;
+    margin-right: 0px;
+}

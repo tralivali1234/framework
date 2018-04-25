@@ -40,7 +40,7 @@ namespace Signum.Engine.Linq
 
             ReadOnlyCollection<ColumnDeclaration> columns = select.Columns.Select(c =>
             {
-                if (select.IsDistinct ? IsConstant(c.Expression) : !columnsUsed.Contains(c.Name))
+                if (select.IsDistinct || select.IsAllAggregates ? IsConstant(c.Expression) : !columnsUsed.Contains(c.Name))
                     return null;
 
                 var ex = Visit(c.Expression);
@@ -119,9 +119,8 @@ namespace Signum.Engine.Linq
 
             if (join.JoinType == JoinType.OuterApply ||join.JoinType == JoinType.LeftOuterJoin)
             {
-                var sql = join.Right as SelectExpression;
 
-                if (sql != null && sql.IsOneRow())
+                if (join.Right is SelectExpression sql && sql.IsOneRow())
                 {
                     var hs = allColumnsUsed.TryGetC(sql.Alias);
                     if (hs == null || hs.Count == 0)
@@ -145,7 +144,7 @@ namespace Signum.Engine.Linq
             var where = Visit(delete.Where);
             var source = Visit(delete.Source);
             if (source != delete.Source || where != delete.Where)
-                return new DeleteExpression(delete.Table, (SourceWithAliasExpression)source, where);
+                return new DeleteExpression(delete.Table, delete.UseHistoryTable, (SourceWithAliasExpression)source, where);
             return delete;
         }
 
@@ -155,7 +154,7 @@ namespace Signum.Engine.Linq
             var assigments = Visit(update.Assigments, VisitColumnAssigment);
             var source = Visit(update.Source);
             if (source != update.Source || where != update.Where || assigments != update.Assigments)
-                return new UpdateExpression(update.Table, (SourceWithAliasExpression)source, where, assigments);
+                return new UpdateExpression(update.Table, update.UseHistoryTable, (SourceWithAliasExpression)source, where, assigments);
             return update;
         }
 
@@ -164,7 +163,7 @@ namespace Signum.Engine.Linq
             var assigments = Visit(insertSelect.Assigments, VisitColumnAssigment);
             var source = Visit(insertSelect.Source);
             if (source != insertSelect.Source || assigments != insertSelect.Assigments)
-                return new InsertSelectExpression(insertSelect.Table, (SourceWithAliasExpression)source, assigments);
+                return new InsertSelectExpression(insertSelect.Table, insertSelect.UseHistoryTable, (SourceWithAliasExpression)source, assigments);
             return insertSelect;
         }
 

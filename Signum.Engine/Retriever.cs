@@ -8,11 +8,16 @@ using System.Linq.Expressions;
 using Signum.Utilities;
 using Signum.Utilities.Reflection;
 using Signum.Engine.Basics;
+using System.Threading;
+using System.Threading.Tasks;
+using Signum.Utilities.ExpressionTrees;
 
 namespace Signum.Engine
 {
     public interface IRetriever : IDisposable
     {
+        Dictionary<string, object> GetUserData();
+
         T Complete<T>(PrimaryKey? id, Action<T> complete) where T : Entity;
         T Request<T>(PrimaryKey? id) where T : Entity;
         T RequestIBA<T>(PrimaryKey? typeId, string id) where T : class, IEntity;
@@ -20,11 +25,17 @@ namespace Signum.Engine
         T ModifiablePostRetrieving<T>(T entity) where T : Modifiable;
         IRetriever Parent { get; }
 
+        void CompleteAll();
+        Task CompleteAllAsync(CancellationToken token);
+
         ModifiedState ModifiedState { get; }
     }
 
     class RealRetriever : IRetriever
     {
+        Dictionary<string, object> userData;
+        public Dictionary<string, object> GetUserData() => userData ?? (userData = new Dictionary<string, object>());
+
         public IRetriever Parent
         {
             get { return null; }
@@ -36,15 +47,14 @@ namespace Signum.Engine
         }
 
         EntityCache.RealEntityCache entityCache;
-        Dictionary<IdentityTuple, Entity> retrieved = new Dictionary<IdentityTuple, Entity>();
+        Dictionary<(Type type, PrimaryKey id), Entity> retrieved = new Dictionary<(Type type, PrimaryKey id), Entity>();
         Dictionary<Type, Dictionary<PrimaryKey, Entity>> requests;
-        Dictionary<IdentityTuple, List<Lite<IEntity>>> liteRequests;
+        Dictionary<(Type type, PrimaryKey id), List<Lite<IEntity>>> liteRequests;
         List<Modifiable> modifiablePostRetrieving = new List<Modifiable>();
 
-        bool TryGetRequest(IdentityTuple key, out Entity value)
+        bool TryGetRequest((Type type, PrimaryKey id) key, out Entity value)
         {
-            Dictionary<PrimaryKey, Entity> dic;
-            if (requests != null && requests.TryGetValue(key.Type, out dic) && dic.TryGetValue(key.Id, out value))
+            if (requests != null && requests.TryGetValue(key.type, out Dictionary<PrimaryKey, Entity> dic) && dic.TryGetValue(key.id, out value))
                 return true;
 
             value = null;
@@ -56,10 +66,9 @@ namespace Signum.Engine
             if (id == null)
                 return null;
 
-            IdentityTuple tuple = new IdentityTuple(typeof(T), id.Value);
+            var tuple = (typeof(T), id.Value);
 
-            Entity result;
-            if (entityCache.TryGetValue(tuple, out result))
+            if (entityCache.TryGetValue(tuple, out Entity result))
                 return (T)result;
 
             if (retrieved.TryGetValue(tuple, out result))
@@ -89,14 +98,22 @@ namespace Signum.Engine
             if (id == null)
                 return null;
 
-            IdentityTuple tuple = new IdentityTuple(typeof(T), id.Value);
+            var tuple = (type: typeof(T), id: id.Value);
 
-            Entity ident;
-            if (entityCache.TryGetValue(tuple, out ident))
+            if (entityCache.TryGetValue(tuple, out Entity ident))
                 return (T)ident;
 
             if (retrieved.TryGetValue(tuple, out ident))
                 return (T)ident;
+
+            ICacheController cc = Schema.Current.CacheController(typeof(T));
+            if (cc != null && cc.Enabled)
+            {
+                T entityFromCache = EntityCache.Construct<T>(id.Value);
+                retrieved.Add(tuple, entityFromCache); //Cycles
+                cc.Complete(entityFromCache, this);
+                return entityFromCache;
+            }
 
             ident = (T)requests?.TryGetC(typeof(T))?.TryGetC(id.Value);
             if (ident != null)
@@ -106,7 +123,7 @@ namespace Signum.Engine
             if (requests == null)
                 requests = new Dictionary<Type, Dictionary<PrimaryKey, Entity>>();
 
-            requests.GetOrCreate(tuple.Type).Add(tuple.Id, entity);
+            requests.GetOrCreate(tuple.type).Add(tuple.id, entity);
 
             return entity;
         }
@@ -127,10 +144,17 @@ namespace Signum.Engine
         {
             if (lite == null)
                 return null;
+            
+            ICacheController cc = Schema.Current.CacheController(lite.EntityType);
+            if (cc != null && cc.Enabled)
+            {
+                lite.SetToString(cc.TryGetToString(lite.Id) ?? ("[" + EngineMessage.EntityWithType0AndId1NotFound.NiceToString().FormatWith(lite.EntityType.NiceName(), lite.Id) + "]"));
+                return lite;
+            }
 
-            IdentityTuple tuple = new IdentityTuple(lite.EntityType, lite.Id);
+            var tuple = (type: lite.EntityType, id: lite.Id);
             if (liteRequests == null)
-                liteRequests = new Dictionary<IdentityTuple, List<Lite<IEntity>>>();
+                liteRequests = new Dictionary<(Type type, PrimaryKey id), List<Lite<IEntity>>>();
             liteRequests.GetOrCreate(tuple).Add(lite);
             return lite;
         }
@@ -143,7 +167,22 @@ namespace Signum.Engine
             return modifiable;
         }
 
-        public void Dispose()
+        public Task CompleteAllAsync(CancellationToken token) => CompleteAllPrivate(token);
+        public void CompleteAll()
+        {
+            try
+            {
+                CompleteAllPrivate(null).Wait();
+            }
+            catch (AggregateException ag)
+            {
+                var ex = ag.InnerExceptions.FirstEx();
+                ex.PreserveStackTrace();
+                throw ex;
+            }
+        }
+
+        public async Task CompleteAllPrivate(CancellationToken? token)
         {
         retry:
             if (requests != null)
@@ -165,13 +204,16 @@ namespace Signum.Engine
 
                             cc.Complete(ident, this);
 
-                            retrieved.Add(new IdentityTuple(ident), ident);
+                            retrieved.Add((type: ident.GetType(), id : ident.Id), ident);
                             dic.Remove(ident.Id);
                         }
                     }
                     else
                     {
-                        Database.RetrieveList(group.Key, dic.Keys.ToList());
+                        if (token == null)
+                            Database.RetrieveList(group.Key, dic.Keys.ToList());
+                        else
+                            await Database.RetrieveListAsync(group.Key, dic.Keys.ToList(), token.Value);
                     }
 
                     if (dic.Count == 0)
@@ -183,7 +225,7 @@ namespace Signum.Engine
             {
 
                 {
-                    List<IdentityTuple> toRemove = null;
+                    List<(Type type, PrimaryKey id)> toRemove = null;
                     foreach (var item in liteRequests)
                     {
                         var entity = retrieved.TryGetC(item.Key);
@@ -195,7 +237,7 @@ namespace Signum.Engine
                                 lite.SetToString(toStr);
 
                             if (toRemove == null)
-                                toRemove = new List<IdentityTuple>();
+                                toRemove = new List<(Type type, PrimaryKey id)>();
 
                             toRemove.Add(item.Key);
                         }
@@ -207,13 +249,13 @@ namespace Signum.Engine
 
                 while (liteRequests.Count > 0)
                 {
-                    var group = liteRequests.GroupBy(a => a.Key.Type).FirstEx();
+                    var group = liteRequests.GroupBy(a => a.Key.type).FirstEx();
 
-                    var dic = giGetStrings.GetInvoker(group.Key)(group.Select(a => a.Key.Id).ToList());
+                    var dic = await giGetStrings.GetInvoker(group.Key)(group.Select(a => a.Key.id).ToList(), token);
 
                     foreach (var item in group)
                     {
-                        var toStr = dic.TryGetC(item.Key.Id) ?? ("[" + EngineMessage.EntityWithType0AndId1NotFound.NiceToString().FormatWith(item.Key.Type.NiceName(), item.Key.Id) + "]");
+                        var toStr = dic.TryGetC(item.Key.id) ?? ("[" + EngineMessage.EntityWithType0AndId1NotFound.NiceToString().FormatWith(item.Key.type.NiceName(), item.Key.id) + "]");
                         foreach (var lite in item.Value)
                         {
                             lite.SetToString(toStr);
@@ -224,39 +266,44 @@ namespace Signum.Engine
                 }
             }
 
-            foreach (var entity in retrieved.Values)
+            var currentlyRetrieved = retrieved.Values.ToHashSet();
+            var currentlyModifiableRetrieved = modifiablePostRetrieving.ToHashSet(Signum.Utilities.DataStructures.ReferenceEqualityComparer<Modifiable>.Default);
+            foreach (var entity in currentlyRetrieved)
             {
                 entity.PostRetrieving();
                 Schema.Current.OnRetrieved(entity);
                 entityCache.Add(entity);
             }
 
-            foreach (var embedded in modifiablePostRetrieving)
+            foreach (var embedded in currentlyModifiableRetrieved)
                 embedded.PostRetrieving();
 
             ModifiedState ms = ModifiedState;
-            foreach (var entity in retrieved.Values)
+            foreach (var entity in currentlyRetrieved)
             {
                 entity.Modified = ms;
                 entity.IsNew = false;
             }
 
-            foreach (var embedded in modifiablePostRetrieving)
+            foreach (var embedded in currentlyModifiableRetrieved)
                 embedded.Modified = ms;
 
             if (liteRequests != null && liteRequests.Count > 0 ||
-                requests != null && requests.Count > 0) // PostRetrieving could retrieve as well
+                requests != null && requests.Count > 0 ||
+                retrieved.Count > currentlyRetrieved.Count
+                ) // PostRetrieving could retrieve as well
             {
-                retrieved.Clear();
-                modifiablePostRetrieving.Clear();
+                retrieved.RemoveAll(a => currentlyRetrieved.Contains(a.Value));
+                modifiablePostRetrieving.RemoveAll(a => currentlyModifiableRetrieved.Contains(a));
                 goto retry;
             }
 
-            entityCache.ReleaseRetriever(this);
+       
         }
 
-        static readonly GenericInvoker<Func<List<PrimaryKey>, Dictionary<PrimaryKey, string>>> giGetStrings = new GenericInvoker<Func<List<PrimaryKey>, Dictionary<PrimaryKey, string>>>(ids => GetStrings<Entity>(ids));
-        static Dictionary<PrimaryKey, string> GetStrings<T>(List<PrimaryKey> ids) where T : Entity
+        static readonly GenericInvoker<Func<List<PrimaryKey>, CancellationToken?, Task<Dictionary<PrimaryKey, string>>>> giGetStrings = 
+            new GenericInvoker<Func<List<PrimaryKey>, CancellationToken?, Task<Dictionary<PrimaryKey, string>>>>((ids, token) => GetStrings<Entity>(ids, token));
+        static async Task<Dictionary<PrimaryKey, string>> GetStrings<T>(List<PrimaryKey> ids, CancellationToken? token) where T : Entity
         {
             ICacheController cc = Schema.Current.CacheController(typeof(T));
 
@@ -265,11 +312,30 @@ namespace Signum.Engine
                 cc.Load();
                 return ids.ToDictionary(a => a, a => cc.TryGetToString(a));
             }
+            else if (token != null)
+            {
+                var tasks = ids.GroupsOf(Schema.Current.Settings.MaxNumberOfParameters)
+                   .Select(gr => Database.Query<T>().Where(e => gr.Contains(e.Id)).Select(a => KVP.Create(a.Id, a.ToString())).ToListAsync(token.Value))
+                   .ToList();
+
+                var list = await Task.WhenAll(tasks);
+
+                return list.SelectMany(li => li).ToDictionary();
+
+            }
             else
-                return ids.GroupsOf(Schema.Current.Settings.MaxNumberOfParameters)
-                    .SelectMany(gr =>
-                        Database.Query<T>().Where(e => gr.Contains(e.Id)).Select(a => KVP.Create(a.Id, a.ToString())))
-                    .ToDictionary();
+            {
+                var dic = ids.GroupsOf(Schema.Current.Settings.MaxNumberOfParameters)
+                    .SelectMany(gr => Database.Query<T>().Where(e => gr.Contains(e.Id)).Select(a => KVP.Create(a.Id, a.ToString())))
+                    .ToDictionaryEx();
+
+                return dic;
+            }  
+        }
+
+        public void Dispose()
+        {
+            entityCache.ReleaseRetriever(this);
         }
 
         public ModifiedState ModifiedState
@@ -280,6 +346,8 @@ namespace Signum.Engine
 
     class ChildRetriever : IRetriever
     {
+        public Dictionary<string, object> GetUserData() => this.Parent.GetUserData();
+
         EntityCache.RealEntityCache entityCache;
         public IRetriever Parent { get; set; }
         public ChildRetriever(IRetriever parent, EntityCache.RealEntityCache entityCache)
@@ -313,9 +381,18 @@ namespace Signum.Engine
             return Parent.ModifiablePostRetrieving(entity);
         }
 
+        public void CompleteAll()
+        {
+        }
+
+        public Task CompleteAllAsync(CancellationToken token)
+        {
+            return Task.CompletedTask;
+        }
+
         public void Dispose()
         {
-            EntityCache.ReleaseRetriever(this);
+            entityCache.ReleaseRetriever(this);
         }
 
         public ModifiedState ModifiedState

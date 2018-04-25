@@ -25,6 +25,8 @@ namespace Signum.Engine.CodeGeneration
 
         public Schema CurrentSchema;
 
+        protected bool? overwriteFiles = null;
+
         public virtual void GenerateLogicFromEntities()
         {
             CurrentSchema = Schema.Current;
@@ -35,9 +37,7 @@ namespace Signum.Engine.CodeGeneration
 
             if (!Directory.Exists(projectFolder))
                 throw new InvalidOperationException("{0} not found. Override GetProjectFolder".FormatWith(projectFolder));
-
-            bool? overwriteFiles = null;
-
+            
             foreach (var mod in GetModules())
             {
                 string str = WriteFile(mod);
@@ -70,16 +70,16 @@ namespace Signum.Engine.CodeGeneration
 
         protected virtual IEnumerable<Module> GetModules()
         {
-            Dictionary<Type, bool> types = CandiateTypes().ToDictionary(a => a, Schema.Current.Tables.ContainsKey);
+            Dictionary<Type, bool> types = CandidateTypes().ToDictionary(a => a, Schema.Current.Tables.ContainsKey);
 
             return CodeGenerator.GetModules(types, this.SolutionName);
         }
 
-        protected virtual List<Type> CandiateTypes()
+        protected virtual List<Type> CandidateTypes()
         {
             var assembly = Assembly.Load(Assembly.GetEntryAssembly().GetReferencedAssemblies().Single(a => a.Name == this.SolutionName + ".Entities"));
 
-            return assembly.GetTypes().Where(t => t.IsEntity() && !t.IsAbstract).ToList();
+            return assembly.GetTypes().Where(t => t.IsEntity() && !t.IsAbstract && !typeof(MixinEntity).IsAssignableFrom(t)).ToList();
         }
 
         protected virtual string WriteFile(Module mod)
@@ -93,16 +93,14 @@ namespace Signum.Engine.CodeGeneration
             sb.AppendLine();
             sb.AppendLine("namespace " + GetNamespace(mod));
             sb.AppendLine("{");
-            sb.Append(WriteClass(mod, expression).Indent(4));
+            sb.Append(WriteLogicClass(mod, expression).Indent(4));
             sb.AppendLine("}");
 
             return sb.ToString();
         }
 
-        protected virtual string WriteClass(Module mod, List<ExpressionInfo> expressions)
+        protected virtual string WriteLogicClass(Module mod, List<ExpressionInfo> expressions)
         {
-            var allExpression = mod.Types.SelectMany(t => GetExpressions(t)).ToList(); 
-
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("public static class " + mod.ModuleName + "Logic");
             sb.AppendLine("{");
@@ -155,6 +153,8 @@ namespace Signum.Engine.CodeGeneration
 
         protected virtual string WriteStartMethod(Module mod, List<ExpressionInfo> expressions)
         {
+            var allExpressions = expressions.ToList();
+
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("public static void Start(SchemaBuilder sb, DynamicQueryManager dqm)");
             sb.AppendLine("{");
@@ -163,26 +163,31 @@ namespace Signum.Engine.CodeGeneration
 
             foreach (var item in mod.Types)
             {
-                string include = WritetInclude(item);
+                string include = WriteInclude(item, allExpressions);
                 if (include != null)
+                {
                     sb.Append(include.Indent(8));
-            }
+                    sb.AppendLine();
+                }
 
-            sb.AppendLine();
-
-            foreach (var item in mod.Types)
-            {
                 string query = WriteQuery(item);
                 if (query != null)
                 {
                     sb.Append(query.Indent(8));
                     sb.AppendLine();
                 }
-            }
 
-            if (expressions.Any())
+                string opers = WriteOperations(item);
+                if (opers != null)
+                {
+                    sb.Append(opers.Indent(8));
+                    sb.AppendLine();
+                }
+            }
+            
+            if (allExpressions.Any())
             {
-                foreach (var ei in expressions)
+                foreach (var ei in allExpressions)
                 {
                     string register = GetRegisterExpression(ei);
                     if (register != null)
@@ -191,16 +196,7 @@ namespace Signum.Engine.CodeGeneration
 
                 sb.AppendLine();
             }
-
-            foreach (var item in mod.Types)
-            {
-                string opers = WriteOperations(item);
-                if (opers != null)
-                {
-                    sb.Append(opers.Indent(8));
-                    sb.AppendLine();
-                }
-            }
+            
 
             sb.AppendLine("    }");
             sb.AppendLine("}");
@@ -218,13 +214,36 @@ namespace Signum.Engine.CodeGeneration
                 .Replace("{NiceName}", ei.IsUnique ? "NiceName" : "NicePluralName");
         }
 
-        protected virtual string WritetInclude(Type type)
+        protected virtual string WriteInclude(Type type, List<ExpressionInfo> expression)
         {
-            return "sb.Include<" + type.TypeName() + ">();\r\n";
+            var ops = GetOperationsSymbols(type);
+            var save = ops.SingleOrDefaultEx(o => GetOperationType(o) == OperationType.Execute && IsSave(o));
+            var delete = ops.SingleOrDefaultEx(o => GetOperationType(o) == OperationType.Delete);
+            var p = ShouldWriteSimpleQuery(type) ? GetVariableName(type) : null;
+
+            var simpleExpressions = expression.Extract(exp => IsSimpleExpression(exp, type));
+
+            return new[]
+            {
+                "sb.Include<" + type.TypeName() + ">()",
+                GetWithVirtualMLists(type),
+                save != null && ShouldWriteSimpleOperations(save) ? ("   .WithSave(" + save.Symbol.ToString() + ")") : null,
+                delete != null && ShouldWriteSimpleOperations(delete) ? ("   .WithDelete(" + delete.Symbol.ToString() + ")") : null,
+                simpleExpressions.HasItems() ? simpleExpressions.ToString(e => $"   .WithExpressionFrom(dqm, ({e.FromType.Name} {GetVariableName(e.FromType)}) => {GetVariableName(e.FromType)}.{e.Name}())", "\r\n") : null,
+                p == null ? null : $"   .WithQuery(dqm, () => {p} => {WriteQueryConstructor(type, p)})"
+            }.NotNull().ToString("\r\n") + ";";
+        }
+
+        private bool IsSimpleExpression(ExpressionInfo exp, Type type)
+        {
+            return !exp.IsUnique && type == exp.ToType;
         }
 
         protected virtual string WriteQuery(Type type)
         {
+            if (ShouldWriteSimpleQuery(type))
+                return null;
+
             string typeName = type.TypeName();
 
             var v = GetVariableName(type);
@@ -232,17 +251,29 @@ namespace Signum.Engine.CodeGeneration
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("dqm.RegisterQuery(typeof({0}), () =>".FormatWith(typeName));
             sb.AppendLine("    from {0} in Database.Query<{1}>()".FormatWith(v, typeName));
-            sb.AppendLine("    select new");
+            sb.AppendLine("    select " + WriteQueryConstructor(type, v) + ");");
+            return sb.ToString();
+        }
+
+        private string WriteQueryConstructor(Type type, string v)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("new");
             sb.AppendLine("    {");
             sb.AppendLine("        Entity = {0},".FormatWith(v));
             sb.AppendLine("        {0}.Id,".FormatWith(v));
             foreach (var prop in GetQueryProperties(type))
-	        {
+            {
                 sb.AppendLine("        {0}.{1},".FormatWith(v, prop.Name));
-	        }
-            sb.AppendLine("    });");
-
+            }
+            sb.Append("    }");
             return sb.ToString();
+
+        }
+
+        protected virtual bool ShouldWriteSimpleQuery(Type type)
+        {
+            return true;
         }
 
         protected internal class ExpressionInfo
@@ -365,6 +396,58 @@ public static IQueryable<{to}> {Method}(this {from} e)
                     select p).Take(10);
         }
 
+        protected virtual string GetWithVirtualMLists(Type type)
+        {
+            return (from p in Reflector.PublicInstancePropertiesInOrder(type)
+                    let bp = GetVirtualMListBackReference(p)
+                    where bp != null
+                    select GetWithVirtualMList(type, p, bp)).ToString("\r\n").DefaultText(null);
+        }
+
+        protected virtual string GetWithVirtualMList(Type type, PropertyInfo p, PropertyInfo bp)
+        {
+            var p1 = GetVariableName(type);
+            var p2 = GetVariableName(p.PropertyType.ElementType());
+            if (p1 == p2)
+                p2 += "2";
+
+            var cast = p.DeclaringType == bp.PropertyType.CleanType() ? "" : $"(Lite<{p.DeclaringType.Name}>)";
+
+            return $"   .WithVirtualMList(dqm, {p1} => {p1}.{p.Name}, {p2} => {cast}{p2}.{bp.Name})";
+        }
+
+        protected virtual PropertyInfo GetVirtualMListBackReference(PropertyInfo pi)
+        {
+            if (!pi.PropertyType.IsMList())
+                return null;
+
+            if (!pi.PropertyType.ElementType().IsEntity())
+                return null;
+
+            if (!pi.HasAttribute<IgnoreAttribute>())
+                return null;
+
+            var t = pi.PropertyType.ElementType();
+
+            var backProperty = Reflector.PublicInstancePropertiesInOrder(t).SingleOrDefaultEx(bp => IsVirtualMListBackReference(bp, pi.DeclaringType));
+
+            return backProperty;
+        }
+
+        protected virtual bool IsVirtualMListBackReference(PropertyInfo pi, Type targetType)
+        {
+            if (!pi.PropertyType.IsLite())
+                return false;
+
+            if (pi.PropertyType.CleanType() == targetType)
+                return true;
+            
+            if (pi.GetCustomAttribute<ImplementedByAttribute>()?.ImplementedTypes.Contains(targetType) == true)
+                return true;
+
+            return false;
+        }
+
         protected virtual bool IsSimpleValueType(Type type)
         {
             var t = CurrentSchema.Settings.GetSqlDbTypePair(type.UnNullify());
@@ -389,28 +472,50 @@ public static IQueryable<{to}> {Method}(this {from} e)
 
         protected virtual string WriteOperation(IOperationSymbolContainer oper)
         {
+
+            switch (GetOperationType(oper))
+            {
+                case OperationType.Execute:
+                    if (IsSave(oper) && ShouldWriteSimpleOperations(oper))
+                        return null;
+                    return WriteExecuteOperation(oper);
+                case OperationType.Delete:
+                    return WriteDeleteOperation(oper);
+                case OperationType.Constructor:
+                    return WriteConstructSimple(oper);
+                case OperationType.ConstructorFrom:
+                    return WriteConstructFrom(oper);
+                case OperationType.ConstructorFromMany:
+                    return WriteConstructFromMany(oper);
+                default:
+                    throw new InvalidOperationException();
+            }
+        }
+
+        private OperationType GetOperationType(IOperationSymbolContainer oper)
+        {
             string type = oper.GetType().TypeName();
 
             if (type.Contains("ExecuteSymbolImp"))
-                return WriteExecuteOperation((IEntityOperationSymbolContainer)oper);
+                return OperationType.Execute;
 
             if (type.Contains("DeleteSymbolImp"))
-                return WriteDeleteOperation((IEntityOperationSymbolContainer)oper);
-
-            if (type.Contains("FromImp"))
-                return WriteConstructFrom((IEntityOperationSymbolContainer)oper);
-
-            if (type.Contains("FromManyImp"))
-                return WriteConstructFromMany(oper);
+                return OperationType.Delete;
 
             if (type.Contains("SimpleImp"))
-                return WriteConstructSimple(oper);
+                return OperationType.Constructor;
 
+            if (type.Contains("FromImp"))
+                return OperationType.ConstructorFrom;
+
+            if (type.Contains("FromManyImp"))
+                return OperationType.ConstructorFromMany;
+;
             throw new InvalidOperationException();
         }
 
-        protected virtual string WriteExecuteOperation(IEntityOperationSymbolContainer oper)
-        {
+        protected virtual string WriteExecuteOperation(IOperationSymbolContainer oper)
+        {   
             Type type = oper.GetType().GetGenericArguments().Single();
 
             var v = GetVariableName(type);
@@ -428,13 +533,21 @@ public static IQueryable<{to}> {Method}(this {from} e)
             return sb.ToString();
         }
 
-        protected virtual bool IsSave(IEntityOperationSymbolContainer oper)
+        private bool ShouldWriteSimpleOperations(IOperationSymbolContainer oper)
+        {
+            return true;
+        }
+
+        protected virtual bool IsSave(IOperationSymbolContainer oper)
         {
             return oper.ToString().Contains("Save"); ;
         }
 
-        protected virtual string WriteDeleteOperation(IEntityOperationSymbolContainer oper)
+        protected virtual string WriteDeleteOperation(IOperationSymbolContainer oper)
         {
+            if (ShouldWriteSimpleOperations(oper))
+                return null;
+
             Type type = oper.GetType().GetGenericArguments().Single();
 
             string v = GetVariableName(type);
@@ -466,7 +579,7 @@ public static IQueryable<{to}> {Method}(this {from} e)
             return sb.ToString();
         }
 
-        protected virtual string WriteConstructFrom(IEntityOperationSymbolContainer oper)
+        protected virtual string WriteConstructFrom(IOperationSymbolContainer oper)
         {
             List<Type> type = oper.GetType().GetGenericArguments().ToList();
 

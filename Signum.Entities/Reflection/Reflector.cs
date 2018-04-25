@@ -1,20 +1,17 @@
-﻿using System;
-using System.Collections;
+﻿using Signum.Utilities;
+using Signum.Utilities.DataStructures;
+using Signum.Utilities.ExpressionTrees;
+using Signum.Utilities.Reflection;
+using System;
+using System.CodeDom.Compiler;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using Signum.Entities;
-using Signum.Utilities;
-using Signum.Utilities.Reflection;
-using Signum.Utilities.DataStructures;
-using System.ComponentModel;
-using System.Collections.ObjectModel;
-using System.Globalization;
-using Signum.Utilities.ExpressionTrees;
 using System.Text.RegularExpressions;
-using System.Collections.Concurrent;
-using System.CodeDom.Compiler;
 
 namespace Signum.Entities.Reflection
 {
@@ -52,19 +49,20 @@ namespace Signum.Entities.Reflection
 
         static bool DescriptionManager_ShouldLocalizeMemeber(MemberInfo arg)
         {
-            return !arg.HasAttribute<HiddenPropertyAttribute>();
+            return !arg.HasAttribute<HiddenPropertyAttribute>() || arg.HasAttribute<DescriptionAttribute>();
         }
 
         static ResetLazy<HashSet<Type>> EnumsInEntities = new ResetLazy<HashSet<Type>>(() =>
         {
-            return (from a in AppDomain.CurrentDomain.GetAssemblies().Where(a => a.HasAttribute<DefaultAssemblyCultureAttribute>())
+            return (from a in AppDomain.CurrentDomain.GetAssemblies()
+                    where a.GetName().Name != "Signum.Analyzer" && a.HasAttribute<DefaultAssemblyCultureAttribute>()
                     from t in a.GetTypes()
                     where typeof(IEntity).IsAssignableFrom(t) || typeof(ModifiableEntity).IsAssignableFrom(t)
                     let da = t.GetCustomAttribute<DescriptionOptionsAttribute>(true)
                     where da == null || da.Options.IsSet(DescriptionOptions.Members)
                     from p in t.GetProperties(BindingFlags.Instance | BindingFlags.Public)
                     where DescriptionManager.OnShouldLocalizeMember(p)
-                    let et = p.PropertyType.UnNullify()
+                    let et = (p.PropertyType.ElementType() ?? p.PropertyType).UnNullify()
                     where et.IsEnum && et.Assembly.HasAttribute<DefaultAssemblyCultureAttribute>()
                     select et).ToHashSet();
         });
@@ -76,7 +74,7 @@ namespace Signum.Entities.Reflection
 
         static DescriptionOptions? DescriptionManager_IsIEntity(Type t)
         {
-             return t.IsInterface && typeof(IEntity).IsAssignableFrom(t) ? DescriptionOptions.Members : (DescriptionOptions?)null;
+            return t.IsInterface && typeof(IEntity).IsAssignableFrom(t) ? DescriptionOptions.Members : (DescriptionOptions?)null;
         }
 
         static DescriptionOptions? DescriptionManager_IsQuery(Type t)
@@ -86,7 +84,7 @@ namespace Signum.Entities.Reflection
 
         static DescriptionOptions? DescriptionManager_IsSymbolContainer(Type t)
         {
-            return t.IsAbstract && t.IsSealed && 
+            return t.IsAbstract && t.IsSealed &&
                 t.GetFields(BindingFlags.Static | BindingFlags.Public)
                 .Any(a => typeof(Symbol).IsAssignableFrom(a.FieldType) || typeof(IOperationSymbolContainer).IsAssignableFrom(a.FieldType)) ? DescriptionOptions.Members : (DescriptionOptions?)null;
         }
@@ -95,6 +93,9 @@ namespace Signum.Entities.Reflection
         {
             if (t.Name.EndsWith("Entity"))
                 return t.Name.RemoveSuffix("Entity");
+
+            if (t.Name.EndsWith("Embedded"))
+                return t.Name.RemoveSuffix("Embedded");
 
             if (t.Name.EndsWith("Model"))
                 return t.Name.RemoveSuffix("Model");
@@ -161,13 +162,21 @@ namespace Signum.Entities.Reflection
             return typeof(EmbeddedEntity).IsAssignableFrom(t);
         }
 
+        public static bool IsModelEntity(this Type t)
+        {
+            return typeof(ModelEntity).IsAssignableFrom(t);
+        }
+
         public static FieldInfo[] InstanceFieldsInOrder(Type type)
         {
-            var result = type.For(t => t != typeof(object), t => t.BaseType)
-                .Reverse()
-                .SelectMany(t => t.GetFields(flags | BindingFlags.DeclaredOnly).OrderBy(f => f.MetadataToken)).ToArray();
+            using (HeavyProfiler.LogNoStackTrace("Reflector", () => type.Name))
+            {
+                var result = type.For(t => t != typeof(object), t => t.BaseType)
+                    .Reverse()
+                    .SelectMany(t => t.GetFields(flags | BindingFlags.DeclaredOnly).OrderBy(f => f.MetadataToken)).ToArray();
 
-            return result;
+                return result;
+            }
         }
 
         public static PropertyInfo[] PublicInstanceDeclaredPropertiesInOrder(Type type)
@@ -179,25 +188,25 @@ namespace Signum.Entities.Reflection
 
         public static PropertyInfo[] PublicInstancePropertiesInOrder(Type type)
         {
-            Dictionary<string, PropertyInfo> properties = new Dictionary<string,PropertyInfo>();
+            Dictionary<string, PropertyInfo> properties = new Dictionary<string, PropertyInfo>();
 
             foreach (var t in type.Follow(t => t.BaseType).Reverse())
             {
                 foreach (var pi in PublicInstanceDeclaredPropertiesInOrder(t))
-	            {
+                {
                     properties[pi.Name] = pi;
-	            }
+                }
             }
 
             return properties.Values.ToArray();
         }
 
-        public static MemberInfo[] GetMemberList<T, S>(Expression<Func<T, S>> lambdaToField)
+        public static MemberInfo[] GetMemberList<T, S>(Expression<Func<T, S>> lambdaToField) => GetMemberListUntyped(lambdaToField);
+        public static MemberInfo[] GetMemberListUntyped(LambdaExpression lambdaToField)
         {
             Expression e = lambdaToField.Body;
 
-            UnaryExpression ue = e as UnaryExpression;
-            if (ue != null && ue.NodeType == ExpressionType.Convert && ue.Type == typeof(object))
+            if (e is UnaryExpression ue && ue.NodeType == ExpressionType.Convert && ue.Type == typeof(object))
                 e = ue.Operand;
 
             MemberInfo[] result = GetMemberListBase(e);
@@ -240,24 +249,24 @@ namespace Signum.Entities.Reflection
             switch (e.NodeType)
             {
                 case ExpressionType.MemberAccess:
-                {
-                    MemberExpression me = (MemberExpression)e;
-                    if (me.Member.DeclaringType.IsLite() && !me.Member.Name.StartsWith("Entity"))
-                        throw new InvalidOperationException("Members of Lite not supported"); 
+                    {
+                        MemberExpression me = (MemberExpression)e;
+                        if (me.Member.DeclaringType.IsLite() && !me.Member.Name.StartsWith("Entity"))
+                            throw new InvalidOperationException("Members of Lite not supported");
 
-                    return me.Member;
-                }
+                        return me.Member;
+                    }
                 case ExpressionType.Call:
-                {
-                    MethodCallExpression mce = (MethodCallExpression)e;
+                    {
+                        MethodCallExpression mce = (MethodCallExpression)e;
 
-                    var parent = mce.Method.IsExtensionMethod() ? mce.Arguments.FirstEx() : mce.Object; 
+                        var parent = mce.Method.IsExtensionMethod() ? mce.Arguments.FirstEx() : mce.Object;
 
-                    if(parent != null && parent.Type.ElementType() == e.Type)
-                        return parent.Type.GetProperty("Item");
+                        if (parent != null && parent.Type.ElementType() == e.Type)
+                            return parent.Type.GetProperty("Item");
 
-                    return mce.Method;
-                }
+                        return mce.Method;
+                    }
                 case ExpressionType.Convert: return ((UnaryExpression)e).Type;
                 case ExpressionType.Parameter: return null;
                 default: throw new InvalidCastException("Not supported {0}".FormatWith(e.NodeType));
@@ -301,7 +310,7 @@ namespace Signum.Entities.Reflection
                 a => a.GetCustomAttributes<GeneratedCodeAttribute>().Any(gc => gc.Tool == "SignumTask"));
 
             if (!isProcessed)
-                throw new InvalidOperationException("Entity {0} has auto-property {1}, but you can not use auto-propertes if the assembly iy not processed by 'SignumTask'");
+                throw new InvalidOperationException("Entity {0} has auto-property {1}, but you can not use auto-propertes if the assembly is not processed by 'SignumTask'".FormatWith(fieldInfo.DeclaringType.Name, fieldInfo.FieldType.Name));
         }
 
         public static PropertyInfo FindPropertyInfo(FieldInfo fi)
@@ -316,33 +325,36 @@ namespace Signum.Entities.Reflection
 
         public static PropertyInfo TryFindPropertyInfo(FieldInfo fi)
         {
-            const BindingFlags flags = BindingFlags.IgnoreCase | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-
-            string propertyName = null;
-            if(fi.Name.StartsWith("<"))
+            using (HeavyProfiler.LogNoStackTrace("TryFindPropertyInfo", () => fi.Name))
             {
-                CheckSignumProcessed(fi);
-                propertyName = fi.Name.After('<').Before('>');
-            }
-            else
-                propertyName = fi.Name.FirstUpper();
+                const BindingFlags flags = BindingFlags.IgnoreCase | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-            var result = fi.DeclaringType.GetProperty(propertyName, flags, null, null, new Type[0], null);
+                string propertyName = null;
+                if (fi.Name.StartsWith("<"))
+                {
+                    CheckSignumProcessed(fi);
+                    propertyName = fi.Name.After('<').Before('>');
+                }
+                else
+                    propertyName = fi.Name.FirstUpper();
 
-            if (result != null)
-                return result;
-
-            foreach (Type i in fi.DeclaringType.GetInterfaces())
-            {
-                result = fi.DeclaringType.GetProperty(i.FullName + "." + propertyName, flags);
+                var result = fi.DeclaringType.GetProperty(propertyName, flags, null, null, new Type[0], null);
 
                 if (result != null)
                     return result;
-            }
 
-            return null;
+                foreach (Type i in fi.DeclaringType.GetInterfaces())
+                {
+                    result = fi.DeclaringType.GetProperty(i.FullName + "." + propertyName, flags);
+
+                    if (result != null)
+                        return result;
+                }
+
+                return null;
+            }
         }
-        
+
 
         public static bool QueryableProperty(Type type, PropertyInfo pi)
         {
@@ -367,14 +379,14 @@ namespace Signum.Entities.Reflection
                 if (unitName != null)
                     return a => a == null ? null : a.ToString(format, CultureInfo.CurrentCulture) + " " + unitName;
                 else
-                    return a => a == null ? null : a.ToString(format, CultureInfo.CurrentCulture);
+                    return a => a?.ToString(format, CultureInfo.CurrentCulture);
             }
             else
             {
                 if (unitName != null)
                     return a => a == null ? null : a.ToString() + " " + unitName;
                 else
-                    return a => a == null ? null : a.ToString();
+                    return a => a?.ToString();
             }
         }
 
@@ -403,8 +415,11 @@ namespace Signum.Entities.Reflection
 
                 StringCaseValidatorAttribute stringCase = pp.Validators.OfType<StringCaseValidatorAttribute>().SingleOrDefaultEx();
                 if (stringCase != null)
-                    return stringCase.TextCase == Case.Lowercase ? "L" : "U";
+                    return stringCase.TextCase == StringCase.Lowercase ? "L" : "U";
             }
+
+            if (route.IsId() && ReflectionTools.IsNumber(PrimaryKey.Type(route.RootType)))
+                return "D";
 
             return FormatString(route.Type);
         }
@@ -436,58 +451,10 @@ namespace Signum.Entities.Reflection
             return null;
         }
 
-        public static bool IsNumber(Type type)
-        {
-            type = type.UnNullify();
-            if (type.IsEnum)
-                return false;
+     
+       
 
-            switch (Type.GetTypeCode(type))
-            {
-                case TypeCode.Byte:
-                case TypeCode.Decimal:
-                case TypeCode.Double:
-                case TypeCode.Int16:
-                case TypeCode.Int32:
-                case TypeCode.Int64:
-                case TypeCode.SByte:
-                case TypeCode.Single:
-                case TypeCode.UInt16:
-                case TypeCode.UInt32:
-                case TypeCode.UInt64:
-                    return true;
-            }
-            return false;
-        }
-
-        public static bool IsDecimalNumber(Type type)
-        {
-            type = type.UnNullify();
-            if (type.IsEnum)
-                return false;
-
-            switch (Type.GetTypeCode(type))
-            {
-                case TypeCode.Decimal:
-                case TypeCode.Double:
-                case TypeCode.Single:
-                    return true;
-            }
-            return false;
-        }
-
-        static readonly Regex validIdentifier = new Regex(@"^[_\p{Ll}\p{Lu}\p{Lt}\p{Lo}\p{Nl}][_\p{Ll}\p{Lu}\p{Lt}\p{Lo}\p{Nl}\p{Nd}]*$");
-        public static bool ValidIdentifier(string identifier)
-        {
-            return validIdentifier.IsMatch(identifier);
-        }
-
-        public static void AssertValidIdentifier(string step)
-        {
-            if (!ValidIdentifier(step))
-                throw new FormatException("'{0}' is not a valid identifier".FormatWith(step));
-        }
-
+ 
         public static PropertyInfo PropertyInfo<T>(this T entity, Expression<Func<T, object>> property) where T : ModifiableEntity
         {
             return ReflectionTools.GetPropertyInfo(property);
@@ -500,9 +467,9 @@ namespace Signum.Entities.Reflection
 
         public static int NumDecimals(string format)
         {
-            var str = (0.0).ToString(format).TryAfter('.');
+            var str = (0.0).ToString(format, CultureInfo.InvariantCulture).TryAfter('.');
 
-            if(str == null)
+            if (str == null)
                 return 0;
 
             return str.Length;

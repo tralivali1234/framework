@@ -1,13 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Linq.Expressions;
-using System.Collections.ObjectModel;
+﻿using Signum.Entities.DynamicQuery;
 using Signum.Utilities;
-using Signum.Entities.DynamicQuery;
-using Signum.Utilities.DataStructures;
-using Signum.Utilities.ExpressionTrees;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Linq.Expressions;
 
 namespace Signum.Engine.Linq
 {
@@ -16,7 +13,7 @@ namespace Signum.Engine.Linq
         List<ColumnExpression> gatheredKeys;
         ReadOnlyCollection<OrderExpression> gatheredOrderings;
         SelectExpression outerMostSelect;
-        bool hasProjectionInProjector; 
+        bool hasProjectionInProjector;
 
         private OrderByRewriter() { }
 
@@ -56,7 +53,7 @@ namespace Signum.Engine.Linq
                 hasProjectionInProjector |= true;
 
                 outerMostSelect = oldOuterMostSelect;
-              
+
 
                 if (source != proj.Select || projector != proj.Projector)
                     return new ProjectionExpression(source, projector, proj.UniqueFunction, proj.Type);
@@ -76,14 +73,14 @@ namespace Signum.Engine.Linq
                     gatheredKeys = new List<ColumnExpression>();
             }
 
-            List<ColumnExpression> saveKeys = null;
-            if (gatheredKeys != null && (select.IsDistinct || select.GroupBy.HasItems()))
-                saveKeys = gatheredKeys.ToList();
+            List<ColumnExpression> savedKeys = null;
+            if (gatheredKeys != null && (select.IsDistinct || select.GroupBy.HasItems() || select.IsAllAggregates))
+                savedKeys = gatheredKeys.ToList();
 
             select = (SelectExpression)base.VisitSelect(select);
 
-            if (saveKeys != null)
-                gatheredKeys = saveKeys;
+            if (savedKeys != null)
+                gatheredKeys = savedKeys;
 
             List<ColumnDeclaration> newColumns = null;
 
@@ -114,6 +111,14 @@ namespace Signum.Engine.Linq
                 }
             }
 
+            if (select.IsAllAggregates)
+            {
+                if (gatheredKeys != null)
+                {
+                    gatheredKeys.AddRange(select.Columns.Select(cd => new ColumnExpression(cd.Expression.Type, select.Alias, cd.Name)));
+                }
+            }
+
             if (select.IsDistinct)
             {
                 gatheredOrderings = null;
@@ -127,7 +132,7 @@ namespace Signum.Engine.Linq
             if (select.IsReverse && !gatheredOrderings.IsNullOrEmpty())
                 gatheredOrderings = gatheredOrderings.Select(o => new OrderExpression(
                     o.OrderType == OrderType.Ascending ? OrderType.Descending : OrderType.Ascending,
-                    o.Expression)).ToReadOnly();  
+                    o.Expression)).ToReadOnly();
 
             if (select.OrderBy.Count > 0)
                 this.PrependOrderings(select.OrderBy);
@@ -230,9 +235,11 @@ namespace Signum.Engine.Linq
             if (aggExp == null)
                 return false;
 
-            return aggExp.AggregateFunction == AggregateFunction.Count ||
-                aggExp.AggregateFunction == AggregateFunction.Sum ||
-                aggExp.AggregateFunction == AggregateFunction.Average;
+            return aggExp.AggregateFunction == AggregateSqlFunction.Count ||
+                aggExp.AggregateFunction == AggregateSqlFunction.Sum ||
+                aggExp.AggregateFunction == AggregateSqlFunction.Average ||
+                aggExp.AggregateFunction == AggregateSqlFunction.StdDev || 
+                aggExp.AggregateFunction == AggregateSqlFunction.StdDevP;
         }
 
         protected internal override Expression VisitJoin(JoinExpression join)
@@ -271,7 +278,7 @@ namespace Signum.Engine.Linq
 
         protected void AppendKeys()
         {
-            if(this.gatheredKeys.IsNullOrEmpty())
+            if (this.gatheredKeys.IsNullOrEmpty())
                 return;
 
             if (this.gatheredOrderings.IsNullOrEmpty())

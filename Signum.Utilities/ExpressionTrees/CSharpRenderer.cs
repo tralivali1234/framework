@@ -45,10 +45,10 @@ namespace Signum.Utilities.ExpressionTrees
 
         public static bool IsBasicType(Type t) 
         {
-            return basicTypes.ContainsKey(Type.GetTypeCode(t));
+            return BasicTypeNames.ContainsKey(Type.GetTypeCode(t));
         }
 
-        static Dictionary<TypeCode, string> basicTypes = new Dictionary<TypeCode, string>
+        public static Dictionary<TypeCode, string> BasicTypeNames = new Dictionary<TypeCode, string>
         {
             { TypeCode.Boolean, "bool"}, 
             { TypeCode.Byte, "byte"}, 
@@ -110,12 +110,12 @@ namespace Signum.Utilities.ExpressionTrees
             return mi is PropertyInfo ? ((PropertyInfo)mi).PropertyName() :
              mi is FieldInfo ? ((FieldInfo)mi).FieldName() :
              mi is MethodInfo ? ((MethodInfo)mi).MethodName() :
-             new InvalidOperationException("MethodInfo mi should be a PropertyInfo, FieldInfo or MethodInfo").Throw<string>();
+             throw new InvalidOperationException("MethodInfo mi should be a PropertyInfo, FieldInfo or MethodInfo");
         }
 
         public static string TypeName(this Type type)
         {
-            List<Type> arguments = type.IsGenericType ? type.GetGenericArguments().ToList() : null;
+            List<Type> arguments = type.IsGenericType ? type.GetGenericArguments().ToList() : new List<Type>();
 
             StringBuilder sb = new StringBuilder();
             foreach (var item in type.Follow(a => a.IsNested ? a.DeclaringType : null).Reverse())
@@ -137,7 +137,7 @@ namespace Signum.Utilities.ExpressionTrees
             if (type.IsEnum)
                 return type.Name;
 
-            string result = basicTypes.TryGetC(Type.GetTypeCode(type));
+            string result = BasicTypeNames.TryGetC(Type.GetTypeCode(type));
             if (result != null)
                 return result;
 
@@ -167,9 +167,6 @@ namespace Signum.Utilities.ExpressionTrees
                 .Replace("<>h__TransparentIdentifier", "τ");
         }
 
-        static CSharpCodeProvider provider = new CSharpCodeProvider();
-        static CodeGeneratorOptions options = new CodeGeneratorOptions();
-
         public static string Value(object value, Type type, string[] importedNamespaces)
         {
             var expr = GetRightExpressionForValue(value, type, importedNamespaces);
@@ -178,7 +175,7 @@ namespace Signum.Utilities.ExpressionTrees
 
             StringBuilder sb = new StringBuilder();
             using (StringWriter sw = new StringWriter(sb))
-                provider.GenerateCodeFromExpression(expr, sw, options);
+                new CSharpCodeProvider().GenerateCodeFromExpression(expr, sw, new CodeGeneratorOptions());
 
             return sb.ToString();
         }
@@ -214,8 +211,10 @@ namespace Signum.Utilities.ExpressionTrees
             if (type.IsArray)
             {
                 Array array = (Array)value;
-                CodeArrayCreateExpression expression = new CodeArrayCreateExpression();
-                expression.CreateType = TypeReference(type.GetElementType(), importedNamespaces);
+                CodeArrayCreateExpression expression = new CodeArrayCreateExpression()
+                {
+                    CreateType = TypeReference(type.GetElementType(), importedNamespaces)
+                };
                 if (array != null)
                 {
                     foreach (object obj2 in array)

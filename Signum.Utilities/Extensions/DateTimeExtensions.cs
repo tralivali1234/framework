@@ -1,13 +1,9 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq.Expressions;
-using Signum.Utilities.ExpressionTrees;
-using System.Text.RegularExpressions;
 using System.Reflection;
-using System.ComponentModel;
+using System.Text.RegularExpressions;
 
 namespace Signum.Utilities
 {
@@ -148,10 +144,10 @@ namespace Signum.Utilities
             DateTime limitMonthStart = limit.MonthStart();
             DateTime nextMonthStart = limitMonthStart.AddMonths(1);
 
-            if(nextMonthStart < end)
+            if (nextMonthStart < end)
             {
                 result += ((nextMonthStart - limit).TotalDays / NumberOfDaysAfterOneMonth(limitMonthStart));
-                result += ((end - nextMonthStart).TotalDays / NumberOfDaysAfterOneMonth(nextMonthStart)); 
+                result += ((end - nextMonthStart).TotalDays / NumberOfDaysAfterOneMonth(nextMonthStart));
             }
             else
             {
@@ -267,6 +263,18 @@ namespace Signum.Utilities
             return DateTimePrecision.Days;
         }
 
+        static char[] allStandardFormats = new char[] {
+        'd', 'D', 'f', 'F', 'g', 'G', 'm', 'M', 'o', 'O', 'r', 'R', 's', 't', 'T', 'u', 'U', 'y', 'Y'
+        };
+
+        public static string ToCustomFormatString(string f, CultureInfo culture)
+        {
+            if (f != null && f.Length == 1 && allStandardFormats.IndexOf(f[0]) != -1)
+                return culture.DateTimeFormat.GetAllDateTimePatterns(f[0]).FirstEx();
+
+            return f;
+        }
+
         public static string SmartShortDatePattern(this DateTime date)
         {
             DateTime currentdate = DateTime.Today;
@@ -359,16 +367,21 @@ namespace Signum.Utilities
 
             return resource.FormatWith((ts.Seconds == 1 ? DateTimeMessage._0Second.NiceToString() : DateTimeMessage._0Seconds.NiceToString()).FormatWith(Math.Abs(ts.Seconds))).ToLower();
         }
-        
 
-     
+
+
 
         public static long JavascriptMilliseconds(this DateTime dateTime)
         {
             if (dateTime.Kind != DateTimeKind.Utc)
-                throw new InvalidOperationException("dateTime should be UTC"); 
+                throw new InvalidOperationException("dateTime should be UTC");
 
             return (long)new TimeSpan(dateTime.Ticks - new DateTime(1970, 1, 1).Ticks).TotalMilliseconds;
+        }
+
+        public static DateTime YearStart(this DateTime dateTime)
+        {
+            return new DateTime(dateTime.Year, 1, 1, 0, 0, 0, dateTime.Kind);
         }
 
         public static DateTime MonthStart(this DateTime dateTime)
@@ -376,6 +389,26 @@ namespace Signum.Utilities
             return new DateTime(dateTime.Year, dateTime.Month, 1, 0, 0, 0, dateTime.Kind);
         }
 
+        public static DateTime WeekStart(this DateTime dateTime)
+        {
+            return new DateTime(dateTime.Year, dateTime.Month, dateTime.Day, 0, 0, 0, dateTime.Kind).AddDays(-(int)dateTime.DayOfWeek);
+        }
+
+        public static DateTime HourStart(this DateTime dateTime)
+        {
+            return new DateTime(dateTime.Year, dateTime.Month, dateTime.Day, dateTime.Hour, 0, 0, dateTime.Kind);
+        }
+
+        public static DateTime MinuteStart(this DateTime dateTime)
+        {
+            return new DateTime(dateTime.Year, dateTime.Month, dateTime.Day, dateTime.Hour, dateTime.Minute, 0, dateTime.Kind);
+        }
+
+        public static DateTime SecondStart(this DateTime dateTime)
+        {
+            return new DateTime(dateTime.Year, dateTime.Month, dateTime.Day, dateTime.Hour, dateTime.Minute, dateTime.Second, dateTime.Kind);
+        }
+        
         public static string ToMonthName(this DateTime dateTime)
         {
             return CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(dateTime.Month);
@@ -390,7 +423,27 @@ namespace Signum.Utilities
         {
             var cc = CultureInfo.CurrentCulture;
 
-            return cc.Calendar.GetWeekOfYear(dateTime, CalendarWeekRule.FirstDay, cc.DateTimeFormat.FirstDayOfWeek); 
+            return cc.Calendar.GetWeekOfYear(dateTime, cc.DateTimeFormat.CalendarWeekRule, cc.DateTimeFormat.FirstDayOfWeek);
+        }
+
+        /// <summary>
+        /// Returns the unix time (also known as POSIX time or epoch time) for the give date time.
+        /// </summary>
+        /// The unix time is defined as the number of seconds, that have elapsed since Thursday, 1 January 1970 00:00:00 (UTC).
+        /// <param name="dateTime"></param>
+        public static long ToUnixTimeSeconds(this DateTime dateTime)
+        {
+            return new DateTimeOffset(dateTime).ToUnixTimeSeconds();
+        }
+
+        /// <summary>
+        /// Returns the unix time (also known as POSIX time or epoch time) for the give date time in milliseconds.
+        /// </summary>
+        /// The unix time is defined as the number of milliseconds, that have elapsed since Thursday, 1 January 1970 00:00:00 (UTC).
+        /// <param name="dateTime"></param>
+        public static long ToUnixTimeMilliseconds(this DateTime dateTime)
+        {
+            return new DateTimeOffset(dateTime).ToUnixTimeMilliseconds();
         }
     }
 
@@ -459,7 +512,7 @@ namespace Signum.Utilities
 
         public override string ToString()
         {
-            string result= ", ".Combine(
+            string result = ", ".Combine(
                          Years == 0 ? null :
                          Years == 1 ? DateTimeMessage._0Year.NiceToString().FormatWith(Years) :
                                      DateTimeMessage._0Years.NiceToString().FormatWith(Years),
@@ -492,6 +545,10 @@ namespace Signum.Utilities
         _0Minute,
         [Description("{0} Minutes")]
         _0Minutes,
+        [Description("{0} Week")]
+        _0Week,
+        [Description("{0} Weeks")]
+        _0Weeks,
         [Description("{0} Month")]
         _0Month,
         [Description("{0} Months")]

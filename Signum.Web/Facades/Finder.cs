@@ -89,7 +89,7 @@ namespace Signum.Web
 
         public static List<Lite<T>> ParseLiteKeys<T>(string liteKeys) where T : class, IEntity
         {
-            return liteKeys.SplitNoEmpty(',').Select(e=>e.Replace("#coma#", ",")).Select(Lite.Parse<T>).ToList();
+            return liteKeys.SplitNoEmpty(",").Select(Lite.Parse<T>).ToList();
         }
 
 
@@ -119,7 +119,8 @@ namespace Signum.Web
         public static string ViewPrefix = "~/Signum/Views/{0}.cshtml";
 
         public Func<bool> AllowChangeColumns = () => true;
-        
+        public Func<bool> AllowOrder = () => true;
+
         public string SearchPopupControlView = ViewPrefix.FormatWith("SearchPopupControl");
         public string SearchPageView = ViewPrefix.FormatWith("SearchPage");
         public string SearchControlView = ViewPrefix.FormatWith("SearchControl");
@@ -153,7 +154,11 @@ namespace Signum.Web
                             QuerySettings[o].WebQueryName = GenerateWebQueryName(o);
                     }
 
-                    WebQueryNames = QuerySettings.ToDictionary(kvp => kvp.Value.WebQueryName, kvp => kvp.Key, StringComparer.InvariantCultureIgnoreCase, "WebQueryNames");
+                    WebQueryNames = QuerySettings.ToDictionaryEx(
+                        kvp => kvp.Value.WebQueryName,
+                        kvp => kvp.Key,
+                        StringComparer.InvariantCultureIgnoreCase,
+                        "WebQueryNames");
                 }
 
                 if (Initializing != null)
@@ -215,13 +220,13 @@ namespace Signum.Web
 
             FilterOption.SetFilterTokens(options.FilterOptions, queryDescription, canAggregate: false);
 
-            var request = new QueryCountRequest
+            var request = new QueryValueRequest
             { 
                 QueryName = options.QueryName,
                 Filters = options.FilterOptions.Select(f => f.ToFilter()).ToList()
             };
 
-            return DynamicQueryManager.Current.ExecuteQueryCount(request);
+            return (int)DynamicQueryManager.Current.ExecuteQueryCount(request);
         }
 
 
@@ -320,7 +325,7 @@ namespace Signum.Web
             controller.ViewData[ViewDataKeys.QueryDescription] = qd;
 
             Type entitiesType = Lite.Extract(qd.Columns.SingleEx(a => a.IsEntity).Type);
-            string message = CollectionElementToken.MultipliedMessage(request.Multiplications, entitiesType);
+            string message = CollectionElementToken.MultipliedMessage(request.Multiplications(), entitiesType);
             if (message.HasText())
                 controller.ViewData[ViewDataKeys.MultipliedMessage] = message;
 

@@ -83,8 +83,7 @@ namespace Signum.Windows
             if (current == null)
                 return false;
 
-            if (Connecting != null)
-                Connecting();
+            Connecting?.Invoke();
 
             return true;
         }
@@ -340,7 +339,7 @@ namespace Signum.Windows
             if (objType.IsLite() && type.IsAssignableFrom(((Lite<IEntity>)obj).EntityType))
             {
                 Lite<Entity> lite = (Lite<Entity>)obj;
-                return lite.UntypedEntityOrNull ?? RetrieveAndForget(lite);
+                return lite.EntityOrNull ?? RetrieveAndForget(lite);
             }
             
             if (type.IsLite())

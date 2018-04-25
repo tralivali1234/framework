@@ -22,9 +22,11 @@ namespace Signum.Engine.Linq
         public static readonly FieldInfo IdField = ReflectionTools.GetFieldInfo((Entity ei) =>ei.id);
         public static readonly FieldInfo ToStrField = ReflectionTools.GetFieldInfo((Entity ie) =>ie.toStr);
         public static readonly MethodInfo ToStringMethod = ReflectionTools.GetMethodInfo((object o) => o.ToString());
+        public static readonly PropertyInfo IdOrNullProperty = ReflectionTools.GetPropertyInfo((Entity ei) => ei.IdOrNull);
 
         public readonly Table Table;
         public readonly PrimaryKeyExpression ExternalId;
+        public readonly NewExpression ExternalPeriod;
 
         //Optional
         public readonly Alias TableAlias;
@@ -33,7 +35,10 @@ namespace Signum.Engine.Linq
 
         public readonly bool AvoidExpandOnRetrieving;
 
-        public EntityExpression(Type type, PrimaryKeyExpression externalId, Alias tableAlias, IEnumerable<FieldBinding> bindings, IEnumerable<MixinEntityExpression> mixins, bool avoidExpandOnRetrieving)
+        public readonly NewExpression TablePeriod;
+
+
+        public EntityExpression(Type type, PrimaryKeyExpression externalId, NewExpression externalPeriod, Alias tableAlias, IEnumerable<FieldBinding> bindings, IEnumerable<MixinEntityExpression> mixins, NewExpression tablePeriod, bool avoidExpandOnRetrieving)
             : base(DbExpressionType.Entity, type)
         {
             if (type == null) 
@@ -41,16 +46,15 @@ namespace Signum.Engine.Linq
 
             if (!type.IsEntity())
                 throw new ArgumentException("type");
-            
-            if (externalId == null) 
-                throw new ArgumentNullException("externalId");
-            
             this.Table = Schema.Current.Table(type);
-            this.ExternalId = externalId;
+            this.ExternalId = externalId ?? throw new ArgumentNullException("externalId");
 
             this.TableAlias = tableAlias;
             this.Bindings = bindings.ToReadOnly();
             this.Mixins = mixins.ToReadOnly();
+
+            this.ExternalPeriod = externalPeriod;
+            this.TablePeriod = tablePeriod;
 
             this.AvoidExpandOnRetrieving = avoidExpandOnRetrieving;
         }
@@ -79,6 +83,19 @@ namespace Signum.Engine.Linq
         {
             return visitor.VisitEntity(this);
         }
+        
+        internal EntityExpression WithExpandEntity(ExpandEntity expandEntity)
+        {
+            switch (expandEntity)
+            {
+                case ExpandEntity.EagerEntity:
+                    return new EntityExpression(this.Type, this.ExternalId, this.ExternalPeriod, this.TableAlias, this.Bindings, this.Mixins, this.TablePeriod, avoidExpandOnRetrieving: false);
+                case ExpandEntity.LazyEntity:
+                    return new EntityExpression(this.Type, this.ExternalId, this.ExternalPeriod, this.TableAlias, this.Bindings, this.Mixins, this.TablePeriod, avoidExpandOnRetrieving: true);
+                default:
+                    throw new NotImplementedException();
+            }
+        }
     }
 
   
@@ -89,8 +106,9 @@ namespace Signum.Engine.Linq
         public readonly ReadOnlyCollection<FieldBinding> Bindings;
 
         public readonly FieldEmbedded FieldEmbedded; //used for updates
+        public readonly Table ViewTable; //used for updates
 
-        public EmbeddedEntityExpression(Type type, Expression hasValue, IEnumerable<FieldBinding> bindings, FieldEmbedded fieldEmbedded)
+        public EmbeddedEntityExpression(Type type, Expression hasValue, IEnumerable<FieldBinding> bindings, FieldEmbedded fieldEmbedded, Table viewTable)
             : base(DbExpressionType.EmbeddedInit, type)
         {
             if (bindings == null)
@@ -104,6 +122,7 @@ namespace Signum.Engine.Linq
             Bindings = bindings.ToReadOnly();
 
             FieldEmbedded = fieldEmbedded; 
+            ViewTable = viewTable;
         }
 
         public Expression GetBinding(FieldInfo fi)
@@ -125,6 +144,13 @@ namespace Signum.Engine.Linq
         protected override Expression Accept(DbExpressionVisitor visitor)
         {
             return visitor.VisitEmbeddedEntity(this);
+        }
+
+        public Expression GetViewId()
+        {
+            var field = ViewTable.GetViewPrimaryKey();
+
+            return this.Bindings.SingleEx(b => ReflectionTools.FieldEquals(b.FieldInfo, field.FieldInfo)).Binding;
         }
     }
 
@@ -227,8 +253,10 @@ namespace Signum.Engine.Linq
     {
         public readonly Expression Id;
         public readonly TypeImplementedByAllExpression TypeId;
+        public readonly NewExpression ExternalPeriod;
+        
 
-        public ImplementedByAllExpression(Type type, Expression id, TypeImplementedByAllExpression typeId)
+        public ImplementedByAllExpression(Type type, Expression id, TypeImplementedByAllExpression typeId, NewExpression externalPeriod)
             : base(DbExpressionType.ImplementedByAll, type)
         {
             if (id == null)
@@ -236,12 +264,9 @@ namespace Signum.Engine.Linq
 
             if (id.Type != typeof(string))
                 throw new ArgumentException("string");
-
-            if (typeId == null)
-                throw new ArgumentNullException("typeId");
-
             this.Id = id;
-            this.TypeId = typeId;
+            this.TypeId = typeId ?? throw new ArgumentNullException("typeId");
+            this.ExternalPeriod = externalPeriod;
         }
 
         public override string ToString()
@@ -257,10 +282,12 @@ namespace Signum.Engine.Linq
 
     internal class LiteReferenceExpression : DbExpression
     {
+        public bool LazyToStr;
+        public bool EagerEntity;
         public readonly Expression Reference; //Fie, ImplementedBy, ImplementedByAll or Constant to NullEntityExpression
         public readonly Expression CustomToStr; //Not readonly
 
-        public LiteReferenceExpression(Type type, Expression reference, Expression customToStr) :
+        public LiteReferenceExpression(Type type, Expression reference, Expression customToStr, bool lazyToStr, bool eagerEntity) :
             base(DbExpressionType.LiteReference, type)
         {
             Type cleanType = Lite.Extract(type);
@@ -271,6 +298,9 @@ namespace Signum.Engine.Linq
             this.Reference = reference;
 
             this.CustomToStr = customToStr;
+
+            this.LazyToStr = lazyToStr;
+            this.EagerEntity = eagerEntity;
         }
 
         public override string ToString()
@@ -281,6 +311,23 @@ namespace Signum.Engine.Linq
         protected override Expression Accept(DbExpressionVisitor visitor)
         {
             return visitor.VisitLiteReference(this);
+        }
+
+        internal LiteReferenceExpression WithExpandLite(ExpandLite expandLite)
+        {
+            switch (expandLite)
+            {
+                case ExpandLite.EntityEager:
+                    return new LiteReferenceExpression(this.Type, this.Reference, this.CustomToStr, lazyToStr: false, eagerEntity: true);
+                case ExpandLite.ToStringEager:
+                    return new LiteReferenceExpression(this.Type, this.Reference, this.CustomToStr, lazyToStr: false, eagerEntity: false);
+                case ExpandLite.ToStringLazy:
+                    return new LiteReferenceExpression(this.Type, this.Reference, this.CustomToStr, lazyToStr: true, eagerEntity: false);
+                case ExpandLite.ToStringNull:
+                    return new LiteReferenceExpression(this.Type, this.Reference, Expression.Constant(null, typeof(string)), lazyToStr: true, eagerEntity: false);
+                default:
+                    throw new NotImplementedException();
+            }
         }
     }
 
@@ -294,20 +341,14 @@ namespace Signum.Engine.Linq
         public LiteValueExpression(Type type, Expression typeId, Expression id, Expression toStr) :
             base(DbExpressionType.LiteValue, type)
         {
-            if (typeId == null)
-                throw new ArgumentNullException("typeId");
-
-            if (id == null)
-                throw new ArgumentNullException("id");
-
-            this.TypeId = typeId;
-            this.Id = id;
+            this.TypeId = typeId ?? throw new ArgumentNullException("typeId");
+            this.Id = id ?? throw new ArgumentNullException("id");
             this.ToStr = toStr;
         }
 
         public override string ToString()
         {
-            return "new Lite<{0}>({1},{2},{3})".FormatWith(Type.CleanType().TypeName(), TypeId.ToString(), Id.ToString(), ToStr.ToString());
+            return $"new Lite<{Type.CleanType().TypeName()}>({TypeId},{Id},{ToStr})";
         }
 
         protected override Expression Accept(DbExpressionVisitor visitor)
@@ -324,14 +365,8 @@ namespace Signum.Engine.Linq
         public TypeEntityExpression(PrimaryKeyExpression externalId, Type typeValue)
             : base(DbExpressionType.TypeEntity, typeof(Type))
         {
-            if (externalId == null)
-                throw new ArgumentException("externalId");
-
-            if (typeValue == null)
-                throw new ArgumentException("typeValue"); 
-
-            this.TypeValue = typeValue;
-            this.ExternalId = externalId;
+            this.TypeValue = typeValue ?? throw new ArgumentException("typeValue");
+            this.ExternalId = externalId ?? throw new ArgumentException("externalId");
         }
 
         public override string ToString()
@@ -341,7 +376,7 @@ namespace Signum.Engine.Linq
 
         protected override Expression Accept(DbExpressionVisitor visitor)
         {
-            return visitor.VisitTypeFieldInit(this);
+            return visitor.VisitTypeEntity(this);
         }
     }
 
@@ -376,10 +411,7 @@ namespace Signum.Engine.Linq
         public TypeImplementedByAllExpression(PrimaryKeyExpression typeColumn)
             : base(DbExpressionType.TypeImplementedByAll, typeof(Type))
         {
-            if (typeColumn == null)
-                throw new ArgumentException("typeId");
-
-            this.TypeColumn = typeColumn;
+            this.TypeColumn = typeColumn ?? throw new ArgumentException("typeId");
         }
 
         public override string ToString()
@@ -395,13 +427,15 @@ namespace Signum.Engine.Linq
 
     internal class MListExpression : DbExpression
     {
-        public readonly Expression BackID; // not readonly
+        public readonly PrimaryKeyExpression BackID; // not readonly
         public readonly TableMList TableMList;
+        public readonly NewExpression ExternalPeriod;
 
-        public MListExpression(Type type, Expression backID, TableMList tr)
-            :base(DbExpressionType.MList, type)
+        public MListExpression(Type type, PrimaryKeyExpression backID, NewExpression externalPeriod, TableMList tr)
+            : base(DbExpressionType.MList, type)
         {
             this.BackID = backID;
+            this.ExternalPeriod = externalPeriod;
             this.TableMList = tr;
         }
 
@@ -416,6 +450,31 @@ namespace Signum.Engine.Linq
         }
     }
 
+    internal class AdditionalFieldExpression : DbExpression
+    {
+        public readonly PrimaryKeyExpression BackID; // not readonly
+        public readonly NewExpression ExternalPeriod;
+        public readonly PropertyRoute Route;
+
+        public AdditionalFieldExpression(Type type, PrimaryKeyExpression backID, NewExpression externalPeriod, PropertyRoute route)
+            : base(DbExpressionType.AdditionalField, type)
+        {
+            this.BackID = backID;
+            this.Route = route;
+            this.ExternalPeriod = externalPeriod;
+        }
+
+        public override string ToString()
+        {
+            return "new AdditionalField({0})".FormatWith(this.Route);
+        }
+
+        protected override Expression Accept(DbExpressionVisitor visitor)
+        {
+            return visitor.VisitAdditionalField(this);
+        }
+    }
+
     internal class MListProjectionExpression : DbExpression
     {
         public readonly ProjectionExpression Projection;
@@ -423,7 +482,7 @@ namespace Signum.Engine.Linq
         public MListProjectionExpression(Type type, ProjectionExpression projection)
             : base(DbExpressionType.MListProjection, type)
         {
-            if (!projection.Type.ElementType().IsInstantiationOf(typeof(MList<>.RowIdValue)))
+            if (!projection.Type.ElementType().IsInstantiationOf(typeof(MList<>.RowIdElement)))
                 throw new ArgumentException("projector should be collation of RowIdValue");
 
             this.Projection = projection;
@@ -449,14 +508,20 @@ namespace Signum.Engine.Linq
 
         public readonly TableMList Table;
 
-        public MListElementExpression(PrimaryKeyExpression rowId, EntityExpression parent, Expression order, Expression element, TableMList table)
+        public readonly Alias Alias;
+
+        public readonly NewExpression TablePeriod;
+
+        public MListElementExpression(PrimaryKeyExpression rowId, EntityExpression parent, Expression order, Expression element, NewExpression systemPeriod, TableMList table, Alias alias)
             : base(DbExpressionType.MListElement, typeof(MListElement<,>).MakeGenericType(parent.Type, element.Type))
         {
             this.RowId = rowId;
             this.Parent = parent;
             this.Order = order;
             this.Element = element;
+            this.TablePeriod = systemPeriod;
             this.Table = table;
+            this.Alias = alias;
         }
 
         public override string ToString()
@@ -476,6 +541,15 @@ namespace Signum.Engine.Linq
 
     internal class PrimaryKeyExpression : DbExpression
     {
+        public static Variable<bool> PreferVariableNameVariable = Statics.ThreadVariable<bool>("preferParameterName");
+
+        public static IDisposable PreferVariableName()
+        {
+            var oldValue = PreferVariableNameVariable.Value;
+            PreferVariableNameVariable.Value = true;
+            return new Disposable(() => PreferVariableNameVariable.Value = oldValue);
+        }
+
         public readonly Expression Value;
 
         public Type ValueType { get { return Value.Type; } }
@@ -514,11 +588,8 @@ namespace Signum.Engine.Linq
             if(id.Type != typeof(string))
                 throw new ArgumentException("id should be a string");
 
-            if(typeId == null)
-                throw new ArgumentNullException("typeId");
-
             this.Id = id;
-            this.TypeId = typeId;
+            this.TypeId = typeId ?? throw new ArgumentNullException("typeId");
         }
 
         public override string ToString()

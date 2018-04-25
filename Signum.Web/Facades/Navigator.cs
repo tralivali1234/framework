@@ -421,7 +421,7 @@ namespace Signum.Web
                 }
 
                 WebTypeNames = EntitySettings.Values.Where(es => es.WebTypeName.HasText())
-                    .ToDictionary(es => es.WebTypeName, es => es.StaticType, StringComparer.InvariantCultureIgnoreCase, "WebTypeNames");
+                    .ToDictionaryEx(es => es.WebTypeName, es => es.StaticType, StringComparer.InvariantCultureIgnoreCase, "WebTypeNames");
 
 
                 Navigator.RegisterArea(typeof(Navigator), areaName: "Signum", resourcesNamespace: "Signum.Web.Signum");
@@ -553,8 +553,8 @@ namespace Signum.Web
             controller.ViewData[ViewDataKeys.ShowOperations] = popupOptions.ShowOperations;
             if (mode == ViewMode.View)
             {
-                controller.ViewData[ViewDataKeys.SaveProtected] = ((PopupViewOptions)popupOptions).SaveProtected ??
-                    OperationLogic.IsSaveProtected(entity.GetType());
+                controller.ViewData[ViewDataKeys.RequiresSaveOperation] = ((PopupViewOptions)popupOptions).RequiresSaveOperation ?? 
+                    (entity is Entity && EntityKindCache.RequiresSaveOperation(entity.GetType()));
             }
 
             return new PartialViewResult
@@ -681,9 +681,7 @@ namespace Signum.Web
 
             return true;
         }
-
-        public event Func<Type, bool> IsFindable;
-
+        
         internal protected virtual bool OnIsFindable(Type type)
         {
             if(!Finder.IsFindable(type))
@@ -692,13 +690,6 @@ namespace Signum.Web
             EntitySettings es = EntitySettings.TryGetC(type);
             if (es != null && !es.OnIsFindable())
                 return false;
-
-            if (IsFindable != null)
-                foreach (var isCreable in IsFindable.GetInvocationListTyped())
-                {
-                    if (!isCreable(type))
-                        return false;
-                }
 
             return true;
         }

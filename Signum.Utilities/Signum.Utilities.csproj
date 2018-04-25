@@ -10,7 +10,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Signum.Utilities</RootNamespace>
     <AssemblyName>Signum.Utilities</AssemblyName>
-    <TargetFrameworkVersion>v4.6</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <SignAssembly>false</SignAssembly>
     <AssemblyOriginatorKeyFile>
@@ -60,9 +60,8 @@
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Microsoft.SqlServer.Types, Version=10.0.0.0, Culture=neutral, PublicKeyToken=89845dcd8080cc91, processorArchitecture=MSIL">
-      <Private>True</Private>
-      <HintPath>..\..\packages\HashFoo.SqlServer.SpatialTypes.10.0.0.0\lib\net40\Microsoft.SqlServer.Types.dll</HintPath>
+    <Reference Include="Microsoft.SqlServer.Types, Version=14.0.0.0, Culture=neutral, PublicKeyToken=89845dcd8080cc91, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Microsoft.SqlServer.Types.14.0.314.76\lib\net40\Microsoft.SqlServer.Types.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core">
@@ -70,6 +69,10 @@
     </Reference>
     <Reference Include="System.Drawing" />
     <Reference Include="System.Runtime.Serialization.Formatters.Soap" />
+    <Reference Include="System.ValueTuple, Version=4.0.2.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.ValueTuple.4.4.0\lib\net461\System.ValueTuple.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Web" />
     <Reference Include="System.Xml.Linq">
       <RequiredTargetFramework>3.5</RequiredTargetFramework>
     </Reference>
@@ -78,16 +81,19 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AboutTools.cs" />
+    <Compile Include="Tsv.cs" />
     <Compile Include="ExpressionExpanderAttributes.cs" />
+    <Compile Include="ExpressionTrees\QueryableAsyncExtensions.cs" />
     <Compile Include="Extensions\ArgsExtensions.cs" />
     <Compile Include="Extensions\ArrayExtensions.cs" />
     <Compile Include="Extensions\ColorExtensions.cs" />
     <Compile Include="ConsoleSwitch.cs" />
-    <Compile Include="MimeTypes.cs" />
+    <Compile Include="Extensions\XmlExtensions.cs" />
     <Compile Include="NaturalLanguage\English.cs" />
     <Compile Include="NaturalLanguage\German.cs" />
     <Compile Include="NaturalLanguage\Spanish.cs" />
     <Compile Include="Profiler\TimeTracker.cs" />
+    <Compile Include="StartParameters.cs" />
     <Compile Include="Statics.cs" />
     <Compile Include="DataStructures\HashsetComparer.cs" />
     <Compile Include="DataStructures\MinMax.cs" />
@@ -220,6 +226,9 @@
     <Content Include="Translations\Signum.Utilities.de.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Translations\Signum.Utilities.fa.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Translations\Signum.Utilities.en.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -248,7 +257,6 @@
     <None Include="Extensions\TreeHelper.md" />
     <None Include="index.mdi" />
     <None Include="Introduction.md" />
-    <None Include="MimeTypes.md" />
     <None Include="MyRandom.md" />
     <None Include="NaturalLanguage\NaturalLangageTools.md" />
     <None Include="packages.config" />

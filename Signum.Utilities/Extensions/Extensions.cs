@@ -1,14 +1,11 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Reflection;
-using System.IO;
-using System.Runtime.Serialization.Formatters.Binary;
 using System.Diagnostics;
 using System.Globalization;
+using System.Linq;
 using System.Runtime.Serialization;
-using System.Linq.Expressions;
+using System.Web;
 
 namespace Signum.Utilities
 {
@@ -18,8 +15,7 @@ namespace Signum.Utilities
         #region Parse Number
         public static int? ToInt(this string str, NumberStyles ns = NumberStyles.Integer, CultureInfo ci = null)
         {
-            int result;
-            if (int.TryParse(str, ns, ci ?? CultureInfo.CurrentCulture, out result))
+            if (int.TryParse(str, ns, ci ?? CultureInfo.CurrentCulture, out int result))
                 return result;
             else
                 return null;
@@ -27,8 +23,7 @@ namespace Signum.Utilities
 
         public static long? ToLong(this string str, NumberStyles ns = NumberStyles.Integer, CultureInfo ci = null)
         {
-            long result;
-            if (long.TryParse(str, ns, ci ?? CultureInfo.CurrentCulture, out result))
+            if (long.TryParse(str, ns, ci ?? CultureInfo.CurrentCulture, out long result))
                 return result;
             else
                 return null;
@@ -36,8 +31,7 @@ namespace Signum.Utilities
 
         public static short? ToShort(this string str, NumberStyles ns = NumberStyles.Integer, CultureInfo ci = null)
         {
-            short result;
-            if (short.TryParse(str, ns, ci ?? CultureInfo.CurrentCulture, out result))
+            if (short.TryParse(str, ns, ci ?? CultureInfo.CurrentCulture, out short result))
                 return result;
             else
                 return null;
@@ -45,8 +39,7 @@ namespace Signum.Utilities
 
         public static float? ToFloat(this string str, NumberStyles ns = NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo ci = null)
         {
-            float result;
-            if (float.TryParse(str, ns, ci ?? CultureInfo.CurrentCulture, out result))
+            if (float.TryParse(str, ns, ci ?? CultureInfo.CurrentCulture, out float result))
                 return result;
             else
                 return null;
@@ -54,8 +47,7 @@ namespace Signum.Utilities
 
         public static double? ToDouble(this string str, NumberStyles ns = NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo ci = null)
         {
-            double result;
-            if (double.TryParse(str, ns, ci ?? CultureInfo.CurrentCulture, out result))
+            if (double.TryParse(str, ns, ci ?? CultureInfo.CurrentCulture, out double result))
                 return result;
             else
                 return null;
@@ -63,8 +55,15 @@ namespace Signum.Utilities
 
         public static decimal? ToDecimal(this string str, NumberStyles ns = NumberStyles.Number, CultureInfo ci = null)
         {
-            decimal result;
-            if (decimal.TryParse(str, ns, ci ?? CultureInfo.CurrentCulture, out result))
+            if (decimal.TryParse(str, ns, ci ?? CultureInfo.CurrentCulture, out decimal result))
+                return result;
+            else
+                return null;
+        }
+
+        public static bool? ToBool(this string str)
+        {
+            if (bool.TryParse(str, out bool result))
                 return result;
             else
                 return null;
@@ -72,8 +71,7 @@ namespace Signum.Utilities
 
         public static int ToInt(this string str, string error)
         {
-            int result;
-            if (int.TryParse(str, out result))
+            if (int.TryParse(str, out int result))
                 return result;
 
             throw new FormatException(error);
@@ -81,8 +79,7 @@ namespace Signum.Utilities
 
         public static long ToLong(this string str, string error)
         {
-            long result;
-            if (long.TryParse(str, out result))
+            if (long.TryParse(str, out long result))
                 return result;
 
             throw new FormatException(error);
@@ -90,8 +87,7 @@ namespace Signum.Utilities
 
         public static short ToShort(this string str, string error)
         {
-            short result;
-            if (short.TryParse(str, out result))
+            if (short.TryParse(str, out short result))
                 return result;
 
             throw new FormatException(error);
@@ -100,8 +96,7 @@ namespace Signum.Utilities
 
         public static float? ToFloat(this string str, string error)
         {
-            float result;
-            if (float.TryParse(str, out result))
+            if (float.TryParse(str, out float result))
                 return result;
 
             throw new FormatException(error);
@@ -109,8 +104,7 @@ namespace Signum.Utilities
 
         public static double ToDouble(this string str, string error)
         {
-            double result;
-            if (double.TryParse(str, out result))
+            if (double.TryParse(str, out double result))
                 return result;
 
             throw new FormatException(error);
@@ -118,13 +112,35 @@ namespace Signum.Utilities
 
         public static decimal ToDecimal(this string str, string error)
         {
-            decimal result;
-            if (decimal.TryParse(str, out result))
+            if (decimal.TryParse(str, out decimal result))
                 return result;
 
             throw new FormatException(error);
         }
-        
+
+        public static bool ToBool(this string str, string error)
+        {
+            if (bool.TryParse(str, out bool result))
+                return result;
+
+            throw new FormatException(error);
+        }
+
+        public static decimal ToDecimal(this double number)
+        {
+            return (decimal)number;
+        }
+
+        public static decimal RoundTo(this decimal number, int decimals)
+        {
+            return Math.Round(number, decimals);
+        }
+
+        public static double RoundTo(this double number, int decimals)
+        {
+            return Math.Round(number, decimals);
+        }
+
         #endregion
 
         #region Math
@@ -207,6 +223,22 @@ namespace Signum.Utilities
 
         #endregion
 
+        #region DateTime
+
+        public static DateTime? ToDateTimeExact(this string date, string format, IFormatProvider formatProvider = null,
+            DateTimeStyles? styles = null)
+        {
+            if (DateTime.TryParseExact(date, format,
+    formatProvider ?? CultureInfo.CurrentCulture,
+    styles ?? DateTimeStyles.None, out DateTime result))
+            {
+                return result;
+            }
+            return null;
+        }
+
+        #endregion
+
         public static T? DefaultToNull<T>(this T value)
             where T : struct
         {
@@ -221,7 +253,7 @@ namespace Signum.Utilities
 
         public static int? NotFoundToNull(this int value)
         {
-            return value == -1 ? null : (int?)value; 
+            return value == -1 ? null : (int?)value;
         }
 
         public static int NotFound(this int value, int defaultValue)
@@ -262,7 +294,6 @@ namespace Signum.Utilities
             return t;
         }
 
-        #region Map Try Do TryDo
         public static R Let<T, R>(this T t, Func<T, R> func)
         {
             return func(t);
@@ -273,7 +304,6 @@ namespace Signum.Utilities
             action(t);
             return t;
         }
-        #endregion
 
         public static IEnumerable<int> To(this int start, int endNotIncluded)
         {
@@ -307,7 +337,7 @@ namespace Signum.Utilities
 
         public static IEnumerable<int> DownTo(this int startNotIncluded, int end, int step)
         {
-            for (int i = startNotIncluded - 1; i >= end; i-= step)
+            for (int i = startNotIncluded - 1; i >= end; i -= step)
                 yield return i;
         }
 
@@ -317,7 +347,7 @@ namespace Signum.Utilities
                 yield return i;
         }
 
-        public delegate R FuncCC<in T, R>(T input) 
+        public delegate R FuncCC<in T, R>(T input)
             where T : class
             where R : class;
         public static IEnumerable<T> Follow<T>(this T start, FuncCC<T, T> next) where T : class
@@ -339,18 +369,34 @@ namespace Signum.Utilities
                 yield return i.Value;
         }
 
-        public static T Throw<T>(this Exception exception) 
-        {
-            throw exception;
-        }
-
-        public static IEnumerable<D> GetInvocationListTyped<D>(this D multicastDelegate) 
+        public static IEnumerable<D> GetInvocationListTyped<D>(this D multicastDelegate)
             where D : class, ICloneable, ISerializable
         {
             if (multicastDelegate == null)
                 return Enumerable.Empty<D>();
 
             return ((MulticastDelegate)(object)multicastDelegate).GetInvocationList().Cast<D>();
+        }
+
+        public static string GetQueryString(object obj)
+        {
+            var result = new List<string>();
+            var props = obj.GetType().GetProperties().Where(p => p.GetValue(obj, null) != null);
+            foreach (var p in props)
+            {
+                var value = p.GetValue(obj, null);
+                var enumerable = value as ICollection;
+                if (enumerable != null)
+                {
+                    result.AddRange(from object v in enumerable select string.Format("{0}={1}", p.Name, HttpUtility.UrlEncode(v?.ToString() ?? "")));
+                }
+                else
+                {
+                    result.Add(string.Format("{0}={1}", p.Name, HttpUtility.UrlEncode(value?.ToString() ?? "")));
+                }
+            }
+
+            return string.Join("&", result.ToArray());
         }
 
     }

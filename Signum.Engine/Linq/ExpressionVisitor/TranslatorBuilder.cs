@@ -104,7 +104,7 @@ namespace Signum.Engine.Linq
         {
             return new LazyChildProjection<K, V>
             {
-                ProjectorExpression = ProjectionBuilder.Build<KeyValuePair<K, MList<V>.RowIdValue>>(projector, scope),
+                ProjectorExpression = ProjectionBuilder.Build<KeyValuePair<K, MList<V>.RowIdElement>>(projector, scope),
             };
         }
         
@@ -385,7 +385,7 @@ namespace Signum.Engine.Linq
             static readonly ConstantExpression NullType = Expression.Constant(null, typeof(Type));
             static readonly ConstantExpression NullId = Expression.Constant(null, typeof(int?));
 
-            protected internal override Expression VisitTypeFieldInit(TypeEntityExpression typeFie)
+            protected internal override Expression VisitTypeEntity(TypeEntityExpression typeFie)
             {
                 return Expression.Condition(
                     Expression.NotEqual(Visit(NullifyColumn(typeFie.ExternalId)), NullId),
@@ -416,6 +416,15 @@ namespace Signum.Engine.Linq
                 return Expression.Call(Expression.Constant(Schema.Current), miGetType, Visit(typeIba.TypeColumn).UnNullify());
             }
 
+            protected internal override Expression VisitLiteReference(LiteReferenceExpression lite)
+            {
+                var reference = Visit(lite.Reference);
+
+                var toStr = Visit(lite.CustomToStr);
+
+                return Lite.ToLiteFatInternalExpression(reference, toStr ?? Expression.Constant(null, typeof(string)));
+            }
+
             protected internal override Expression VisitLiteValue(LiteValueExpression lite)
             {
                 var id = Visit(NullifyColumn(lite.Id));
@@ -439,9 +448,8 @@ namespace Signum.Engine.Linq
                         Expression.Convert(Lite.NewExpression(type, id, toStringOrNull), lite.Type),
                         nothing);
                 }
-                else if (typeId is TypeImplementedByExpression)
+                else if (typeId is TypeImplementedByExpression tib)
                 {
-                    TypeImplementedByExpression tib = (TypeImplementedByExpression)typeId;
                     liteConstructor = tib.TypeImplementations.Aggregate(nothing,
                         (acum, ti) =>
                             {
@@ -450,9 +458,8 @@ namespace Signum.Engine.Linq
                                     Expression.Convert(Lite.NewExpression(ti.Key, visitId, toStringOrNull), lite.Type), acum);
                             });
                 }
-                else if (typeId is TypeImplementedByAllExpression)
+                else if (typeId is TypeImplementedByAllExpression tiba)
                 {
-                    TypeImplementedByAllExpression tiba = (TypeImplementedByAllExpression)typeId;
                     var tid = Visit(NullifyColumn(tiba.TypeColumn));
                     liteConstructor = Expression.Convert(Expression.Call(miLiteCreateParse, Expression.Constant(Schema.Current), tid, id.UnNullify(), toStringOrNull), lite.Type);
                 }
@@ -546,6 +553,29 @@ namespace Signum.Engine.Linq
                     return null;
 
                 return PrimaryKey.Parse(id, type);
+            }
+
+            protected override Expression VisitNew(NewExpression node)
+            {
+                var expressions =  this.Visit(node.Arguments);
+
+                if (node.Members != null)
+                {
+                    for (int i = 0; i < node.Members.Count; i++)
+                    {
+                        var m = node.Members[i];
+                        var e = expressions[i];
+                        if (m is PropertyInfo pi && !pi.PropertyType.IsAssignableFrom(e.Type))
+                        {
+                            throw  new InvalidOperationException(
+                                $"Impossible to assign a '{e.Type.TypeName()}' to the member '{m.Name}' of type '{pi.PropertyType.TypeName()}'." +
+                                (e.Type.IsInstantiationOf(typeof(IEnumerable<>)) ? "\nConsider adding '.ToList()' at the end of your sub-query" : null)
+                            );
+                        }
+                    }
+                }
+
+                    return (Expression) node.Update(expressions);
             }
         }
     }

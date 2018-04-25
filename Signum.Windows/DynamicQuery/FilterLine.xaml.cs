@@ -16,6 +16,8 @@ using Signum.Entities.DynamicQuery;
 using Signum.Entities.Reflection;
 using Signum.Utilities;
 using System.Collections;
+using System.Collections.ObjectModel;
+using Signum.Utilities.Reflection;
 
 namespace Signum.Windows
 {
@@ -33,8 +35,7 @@ namespace Signum.Windows
 
         private void btRemove_Click(object sender, RoutedEventArgs e)
         {
-            if (Remove != null)
-                Remove(this, e);
+            Remove?.Invoke(this, e);
         }
 
         private void StackPanel_Loaded(object sender, RoutedEventArgs e)
@@ -54,12 +55,12 @@ namespace Signum.Windows
 
             var newValue = e.AddedItems.Cast<FilterOperation?>().SingleOrDefault();
 
-            if (newValue == FilterOperation.IsIn)
+            if (newValue.HasValue && newValue.Value.IsList())
             {
                 if (!(f.Value is IList))
                 {
                     valueContainer.Children.Clear();
-                    var list = (IList)Activator.CreateInstance(typeof(MList<>).MakeGenericType(f.Token.Type.Nullify()));
+                    var list = (IList)Activator.CreateInstance(typeof(ObservableCollection<>).MakeGenericType(f.Token.Type.Nullify()));
                     list.Add(f.Value);
                     f.Value = list; 
                     RecreateControls();
@@ -82,7 +83,7 @@ namespace Signum.Windows
 
             valueContainer.Children.Clear();
 
-            if (f.Operation != FilterOperation.IsIn)
+            if (!f.Operation.IsList())
             {
                 FillLite(f.RealValue as Lite<IEntity>);
 
@@ -233,7 +234,7 @@ namespace Signum.Windows
                     NotifyOnValidationError = true,
                     ValidatesOnDataErrors = true,
                     ValidatesOnExceptions = true,
-                    Converter = Reflector.IsNumber(type) ? Converters.Identity : null,
+                    Converter = ReflectionTools.IsNumber(type) ? Converters.Identity : null,
                 });
 
                 return vl;

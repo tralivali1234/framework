@@ -18,10 +18,7 @@ namespace Signum.Entities.DynamicQuery
     public class ResultColumn :ISerializable
     {
         Column column;
-        public Column Column
-        {
-            get { return column; }
-        }
+        public Column Column => column;
 
         int index;
         public int Index
@@ -30,12 +27,13 @@ namespace Signum.Entities.DynamicQuery
             internal set { index = value; }
         }
 
-        internal IList Values;
+        IList values;
+        public IList Values => values;
 
         public ResultColumn(Column column, IList values)
         {
             this.column = column;
-            this.Values = values;
+            this.values = values;
         }
 
 
@@ -46,8 +44,8 @@ namespace Signum.Entities.DynamicQuery
                 switch (entry.Name)
                 {
                     case "column": column = (Column)entry.Value; break;
-                    case "valuesList": Values = (IList)entry.Value; break;
-                    case "valuesString": Values = Split((string)entry.Value, GetValueDeserializer()); break;
+                    case "valuesList": values = (IList)entry.Value; break;
+                    case "valuesString": values = Split((string)entry.Value, GetValueDeserializer()); break;
                 }
             }
         }
@@ -79,10 +77,10 @@ namespace Signum.Entities.DynamicQuery
             Func<object, string> serializer = GetValueSerializer();
 
             if (serializer == null)
-                info.AddValue("valuesList", Values);
+                info.AddValue("valuesList", values);
             else
             {
-                string result = Join(Values, serializer);
+                string result = Join(values, serializer);
                 info.AddValue("valuesString", result);
             }
         }
@@ -212,6 +210,8 @@ namespace Signum.Entities.DynamicQuery
 
             return Lite.Create(type, PrimaryKey.Parse(idStr, type), toStr);
         }
+
+        public override string ToString() => "Col" + this.Index + ": " + this.Column.ToString();
     }
 
     [Serializable]
@@ -262,25 +262,58 @@ namespace Signum.Entities.DynamicQuery
             this.rows = 0.To(rows).Select(i => new ResultRow(i, this)).ToArray();
         }
 
-        public DataTable ToDataTable()
+        public DataTable ToDataTable(DataTableValueConverter converter = null)
         {
+            if (converter == null)
+                converter = new InvariantDataTableValueConverter();
+
             DataTable dt = new DataTable("Table");
-            dt.Columns.AddRange(Columns.Select(c => new DataColumn(c.Column.Name,
-                c.Column.Type.IsLite() ? typeof(string) : c.Column.Type.UnNullify())).ToArray());
+            dt.Columns.AddRange(Columns.Select(c => new DataColumn(c.Column.Name, converter.ConvertType(c.Column))).ToArray());
             foreach (var row in Rows)
             {
-                dt.Rows.Add(Columns.Select((_, i) => Convert(row[i])).ToArray());
+                dt.Rows.Add(Columns.Select((c, i) => converter.ConvertValue(row[i], c.Column)).ToArray());
             }
             return dt;
         }
 
-        private object Convert(object p)
+        public DataTable ToDataTablePivot(int rowColumnIndex, int columnColumnIndex, int valueIndex, DataTableValueConverter converter = null)
         {
-            if (p is Lite<Entity>)
-                return ((Lite<Entity>)p).KeyLong();
+            if (converter != null)
+                converter = new InvariantDataTableValueConverter();
 
-            return p;
+            string Null = "- NULL -";
+
+            Dictionary<object, Dictionary<object, object>> dictionary = 
+                this.Rows
+                .AgGroupToDictionary(
+                    row => row[rowColumnIndex] ?? Null,
+                    gr => gr.ToDictionaryEx(
+                        row => row[columnColumnIndex] ?? Null,
+                        row => row[valueIndex])
+                );
+
+            var allColumns = dictionary.Values.SelectMany(d => d.Keys).Distinct();
+
+            var rowColumn = this.Columns[rowColumnIndex];
+            var valueColumn = this.Columns[valueIndex];
+
+            var result = new DataTable();
+            result.Columns.Add(new DataColumn( rowColumn.Column.DisplayName, converter.ConvertType(rowColumn.Column)));
+            foreach (var item in allColumns)
+                result.Columns.Add(new DataColumn(item.ToString(), converter.ConvertType(valueColumn.Column)));
+
+            foreach (var kvp in dictionary)
+            {
+                result.Rows.Add(
+                    allColumns.Select(val => converter.ConvertValue(kvp.Value.TryGetC(val), valueColumn.Column))
+                    .PreAnd(converter.ConvertValue(kvp.Key, rowColumn.Column))
+                    .ToArray());
+            }
+
+            return result;
+
         }
+
 
         int? totalElements;
         public int? TotalElements { get { return totalElements; } }
@@ -304,6 +337,74 @@ namespace Signum.Entities.DynamicQuery
         }
     }
 
+    public abstract class DataTableValueConverter
+    {
+        public abstract Type ConvertType(Column column);
+        public abstract object ConvertValue(object value, Column column);
+    }
+
+    public class NiceDataTableValueConverter : DataTableValueConverter
+    {
+        public override Type ConvertType(Column column)
+        {
+            var type = column.Type;
+
+            if (type.IsLite())
+                return typeof(string);
+
+            if (type.UnNullify().IsEnum)
+                return typeof(string);
+            
+            if (type.UnNullify() == typeof(DateTime) && column.Format != "g")
+                return typeof(string);
+
+            return type.UnNullify();
+        }
+
+        public override object ConvertValue(object value, Column column)
+        {
+            if (value is Lite<Entity>)
+                return ((Lite<Entity>)value).ToString();
+            
+            if (value is Enum)
+                return ((Enum)value).NiceToString();
+
+            if (value is DateTime && column.Token.Format != "g")
+                return ((DateTime)value).ToString(column.Token.Format);
+
+            return value;
+        }
+    }
+
+
+    public class InvariantDataTableValueConverter : NiceDataTableValueConverter
+    {
+        public override Type ConvertType(Column column)
+        {
+            var type = column.Token.Type;
+
+            if (type.IsLite())
+                return typeof(string);
+
+            if (type.UnNullify().IsEnum)
+                return typeof(string);
+
+            return type.UnNullify();
+        }
+
+        public override object ConvertValue(object value, Column column)
+        {
+            var type = column.Token.Type;
+
+            if (value is Lite<Entity>)
+                return ((Lite<Entity>)value).KeyLong();
+
+            if (value is Enum)
+                return ((Enum)value).ToString();
+            
+            return value;
+        }
+    }
 
     [Serializable]
     public class ResultRow : INotifyPropertyChanged
@@ -319,8 +420,7 @@ namespace Signum.Entities.DynamicQuery
             {
                 isDirty = value;
 
-                if (PropertyChanged != null)
-                    PropertyChanged(this, new PropertyChangedEventArgs("IsDirty"));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("IsDirty"));
             }
         }
 
@@ -345,6 +445,11 @@ namespace Signum.Entities.DynamicQuery
             get { return (Lite<Entity>)Table.entityColumn.Values[Index]; }
         }
 
+        public Lite<Entity> TryEntity
+        {
+            get { return Table.entityColumn == null ? null : (Lite<Entity>)Table.entityColumn.Values[Index]; }
+        }
+
         public T GetValue<T>(string columnName)
         {
             return (T)this[Table.Columns.Where(c => c.Column.Name == columnName).SingleEx(() => columnName)];
@@ -358,6 +463,16 @@ namespace Signum.Entities.DynamicQuery
         public T GetValue<T>(ResultColumn column)
         {
             return (T)this[column];
+        }
+
+        public object[] GetValues(ResultColumn[] columnArray)
+        {
+            var result = new object[columnArray.Length];
+            for (int i = 0; i < columnArray.Length; i++)
+            {
+                result[i] = this[columnArray[i]];
+            }
+            return result;
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

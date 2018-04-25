@@ -16,6 +16,8 @@ using Signum.Entities;
 using Signum.Utilities.Reflection;
 using System.Reflection;
 using Microsoft.SqlServer.Server;
+using System.Threading.Tasks;
+using System.Threading;
 
 namespace Signum.Engine
 {
@@ -47,10 +49,10 @@ namespace Signum.Engine
 
         static readonly Variable<int?> scopeTimeout = Statics.ThreadVariable<int?>("scopeTimeout");
         public static int? ScopeTimeout { get { return scopeTimeout.Value; } }
-        public static IDisposable CommandTimeoutScope(int? timeoutMilliseconds)
+        public static IDisposable CommandTimeoutScope(int? timeoutSeconds)
         {
             var old = scopeTimeout.Value;
-            scopeTimeout.Value = timeoutMilliseconds;
+            scopeTimeout.Value = timeoutSeconds;
             return new Disposable(() => scopeTimeout.Value = old);
         }
 
@@ -93,6 +95,7 @@ namespace Signum.Engine
         protected internal abstract int ExecuteNonQuery(SqlPreCommandSimple preCommand, CommandType commandType);
         protected internal abstract DataTable ExecuteDataTable(SqlPreCommandSimple command, CommandType commandType);
         protected internal abstract DbDataReader UnsafeExecuteDataReader(SqlPreCommandSimple sqlPreCommandSimple, CommandType commandType);
+        protected internal abstract Task<DbDataReader> UnsafeExecuteDataReaderAsync(SqlPreCommandSimple preCommand, CommandType commandType, CancellationToken token);
         protected internal abstract DataSet ExecuteDataSet(SqlPreCommandSimple sqlPreCommandSimple, CommandType commandType);
         protected internal abstract void BulkCopy(DataTable dt, ObjectName destinationTable, SqlBulkCopyOptions options, int? timeout);
 
@@ -150,17 +153,19 @@ namespace Signum.Engine
 
         public abstract bool AllowsSetSnapshotIsolation { get; }
 
-        public abstract void FixType(ref SqlDbType type, ref int? size, ref int? scale);
-
         public abstract bool AllowsIndexWithWhere(string where);
 
-        public abstract SqlPreCommand ShringDatabase(string schemaName);
+        public abstract SqlPreCommand ShrinkDatabase(string schemaName);
 
         public abstract bool AllowsConvertToDate { get; }
 
         public abstract bool AllowsConvertToTime { get; }
 
         public abstract bool SupportsSqlDependency { get; }
+
+        public abstract bool SupportsFormat { get; }
+
+        public abstract bool SupportsTemporalTables { get; }
     }
 
     public abstract class ParameterBuilder
@@ -172,7 +177,7 @@ namespace Signum.Engine
 
         public DbParameter CreateReferenceParameter(string parameterName, PrimaryKey? id, IColumn column)
         {
-            return CreateParameter(parameterName, column.SqlDbType, null, column.Nullable, id == null ? (object)null : id.Value.Object);
+            return CreateParameter(parameterName, column.SqlDbType, null, column.Nullable.ToBool(), id == null ? (object)null : id.Value.Object);
         }
 
         public DbParameter CreateParameter(string parameterName, object value, Type type)

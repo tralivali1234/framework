@@ -10,6 +10,7 @@ using Signum.Entities.Reflection;
 using Signum.Engine.Maps;
 using Signum.Utilities.ExpressionTrees;
 using Signum.Utilities.DataStructures;
+using System.Collections.ObjectModel;
 
 namespace Signum.Engine.Linq
 {
@@ -24,13 +25,16 @@ namespace Signum.Engine.Linq
             
             var result = pc.Visit(source);
 
-            var expandedResul = QueryJoinExpander.ExpandJoins(result, binder);
+            var expandedResul = QueryJoinExpander.ExpandJoins(result, binder, cleanRequests: true);
 
             return expandedResul;
         }
 
         protected internal override Expression VisitLiteReference(LiteReferenceExpression lite)
         {
+            if (lite.EagerEntity)
+                return base.VisitLiteReference(lite);
+
             var id = lite.Reference is ImplementedByAllExpression || 
                 lite.Reference is ImplementedByExpression && ((ImplementedByExpression)lite.Reference).Implementations.Select(imp=>imp.Value.ExternalId.ValueType.Nullify()).Distinct().Count() > 1 ?
                 (Expression)binder.GetIdString(lite.Reference) :
@@ -50,24 +54,23 @@ namespace Signum.Engine.Linq
             if (lite.Reference is ImplementedByAllExpression)
                 return null;
 
-              if (IsCacheable(typeId))
+            if (lite.LazyToStr)
                 return null;
 
-            if (lite.Reference is EntityExpression)
+            if (IsCacheable(typeId))
+                return null;
+
+            if (lite.Reference is EntityExpression entityExp)
             {
-                var ee = (EntityExpression)lite.Reference;
-                
-                if(ee.AvoidExpandOnRetrieving)
+                if (entityExp.AvoidExpandOnRetrieving)
                     return null;
 
-                return binder.BindMethodCall(Expression.Call(lite.Reference, EntityExpression.ToStringMethod));
+                return binder.BindMethodCall(Expression.Call(entityExp, EntityExpression.ToStringMethod));
             }
-                
-            if(lite.Reference is ImplementedByExpression)
-            {
-                var ibe = (ImplementedByExpression)lite.Reference;
 
-                if(ibe.Implementations.Any(imp => imp.Value.AvoidExpandOnRetrieving))
+            if (lite.Reference is ImplementedByExpression ibe)
+            {
+                if (ibe.Implementations.Any(imp => imp.Value.AvoidExpandOnRetrieving))
                     return null;
 
                 return ibe.Implementations.Values.Select(ee =>
@@ -81,14 +84,12 @@ namespace Signum.Engine.Linq
 
         private bool IsCacheable(Expression newTypeId)
         {
-            TypeEntityExpression tfie= newTypeId as TypeEntityExpression;
 
-            if (tfie != null)
+            if (newTypeId is TypeEntityExpression tfie)
                 return IsCached(tfie.TypeValue);
 
-            TypeImplementedByExpression tibe = newTypeId as TypeImplementedByExpression;
 
-            if (tibe != null)
+            if (newTypeId is TypeImplementedByExpression tibe)
                 return tibe.TypeImplementations.All(t => IsCached(t.Key));
 
             return false;
@@ -98,29 +99,71 @@ namespace Signum.Engine.Linq
         {
             if (previousTypes.Contains(ee.Type) || IsCached(ee.Type) || ee.AvoidExpandOnRetrieving)
             {
-                ee = new EntityExpression(ee.Type, ee.ExternalId, null, null, null, ee.AvoidExpandOnRetrieving);
+                ee = new EntityExpression(ee.Type, ee.ExternalId, null, null, null, null, null /*ee.SystemPeriod TODO*/ , ee.AvoidExpandOnRetrieving);
             }
             else
                 ee = binder.Completed(ee);
 
             previousTypes = previousTypes.Push(ee.Type);
 
-            var bindings =  Visit(ee.Bindings, VisitFieldBinding);
+            var bindings = VisitBindings(ee.Bindings);
+
             var mixins = Visit(ee.Mixins, VisitMixinEntity);
 
             var id = (PrimaryKeyExpression)Visit(ee.ExternalId);
 
-            var result = new EntityExpression(ee.Type, id, ee.TableAlias, bindings, mixins, ee.AvoidExpandOnRetrieving);
+            var result = new EntityExpression(ee.Type, id, ee.ExternalPeriod, ee.TableAlias, bindings, mixins, ee.TablePeriod, ee.AvoidExpandOnRetrieving);
 
             previousTypes = previousTypes.Pop();
 
             return result;
         }
 
+        private ReadOnlyCollection<FieldBinding> VisitBindings(ReadOnlyCollection<FieldBinding> bindings)
+        {
+            return bindings.Select(b =>
+            {
+                var newB = Visit(b.Binding);
+
+                if (newB != null)
+                    return new FieldBinding(b.FieldInfo, newB);
+
+                return null;
+            }).NotNull().ToReadOnly();
+        }
+
+        protected internal override Expression VisitEmbeddedEntity(EmbeddedEntityExpression eee)
+        {
+            var bindings = VisitBindings(eee.Bindings);
+            var hasValue = Visit(eee.HasValue);
+
+            if (eee.Bindings != bindings || eee.HasValue != hasValue)
+            {
+                return new EmbeddedEntityExpression(eee.Type, hasValue, bindings, eee.FieldEmbedded, eee.ViewTable);
+            }
+            return eee;
+        }
+
+        protected internal override MixinEntityExpression VisitMixinEntity(MixinEntityExpression me)
+        {
+            var bindings = VisitBindings(me.Bindings);
+
+            if (me.Bindings != bindings)
+            {
+                return new MixinEntityExpression(me.Type, bindings, me.MainEntityAlias, me.FieldMixin);
+            }
+            return me;
+        }
+
         private bool IsCached(Type type)
         { 
             var cc = Schema.Current.CacheController(type);
-            return cc != null && cc.Enabled; /*just to force cache before executing the query*/
+            if (cc != null && cc.Enabled)
+            {
+                cc.Load(); /*just to force cache before executing the query*/
+                return true;
+            }
+            return false;
         }
 
         protected internal override Expression VisitMList(MListExpression ml)
@@ -130,6 +173,18 @@ namespace Signum.Engine.Linq
             var newProj = (ProjectionExpression)this.Visit(proj);
 
             return new MListProjectionExpression(ml.Type, newProj);
+        }
+
+        protected internal override Expression VisitAdditionalField(AdditionalFieldExpression afe)
+        {
+            var exp = binder.BindAdditionalField(afe, entityCompleter: true);
+
+            var newEx = this.Visit(exp);
+
+            if (newEx is ProjectionExpression newProj && newProj.Projector.Type.IsInstantiationOf(typeof(MList<>.RowIdElement)))
+                return new MListProjectionExpression(afe.Type, newProj);
+
+            return newEx;
         }
 
         protected internal override Expression VisitProjection(ProjectionExpression proj)

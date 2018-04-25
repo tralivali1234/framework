@@ -19,20 +19,12 @@ namespace Signum.Utilities.ExpressionTrees
 
         public Query(QueryProvider provider)
         {
-            if (provider == null)
-            {
-                throw new ArgumentNullException("provider");
-            }
-            this.provider = provider;
+            this.provider = provider ?? throw new ArgumentNullException("provider");
             this.expression = Expression.Constant(this);
         }
 
         public Query(QueryProvider provider, Expression expression)
         {
-            if (provider == null)
-            {
-                throw new ArgumentNullException("provider");
-            }
             if (expression == null)
             {
                 throw new ArgumentNullException("expression");
@@ -41,7 +33,7 @@ namespace Signum.Utilities.ExpressionTrees
             {
                 throw new ArgumentOutOfRangeException("expression");
             }
-            this.provider = provider;
+            this.provider = provider ?? throw new ArgumentNullException("provider");
             this.expression = expression;
         }
 
@@ -73,8 +65,7 @@ namespace Signum.Utilities.ExpressionTrees
 
         public override string ToString()
         {
-            ConstantExpression ce = expression as ConstantExpression;
-            if (ce != null && ce.Value == this)
+            if (expression is ConstantExpression ce && ce.Value == this)
                 return this.GetType().TypeName().CleanIdentifiers();
             else
                 return expression.ToString();

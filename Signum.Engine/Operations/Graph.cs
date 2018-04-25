@@ -18,8 +18,8 @@ namespace Signum.Engine.Operations
     {
         public class Construct : _Construct<T>, IConstructOperation
         {
-            protected readonly ConstructSymbol<T>.Simple Symbol;
-            OperationSymbol IOperation.OperationSymbol { get { return Symbol.Symbol; } }
+            protected readonly OperationSymbol operationSymbol;
+            OperationSymbol IOperation.OperationSymbol { get { return operationSymbol; } }
             Type IOperation.OverridenType { get { return typeof(T); } }
             OperationType IOperation.OperationType { get { return OperationType.Constructor; } }
             bool IOperation.Returns { get { return true; } }
@@ -38,7 +38,18 @@ namespace Signum.Engine.Operations
                 if (symbol == null)
                     throw AutoInitAttribute.ArgumentNullException(typeof(ConstructSymbol<T>.Simple), nameof(symbol));
 
-                this.Symbol = symbol;
+                this.operationSymbol = symbol.Symbol;
+            }
+
+            protected Construct(OperationSymbol operationSymbol)
+            {
+                this.operationSymbol = operationSymbol ?? throw new ArgumentNullException(nameof(operationSymbol));
+            }
+
+            public static Construct Untyped<B>(ConstructSymbol<B>.Simple symbol)
+                where B: class, IEntity
+            {
+                return new Construct(symbol.Symbol);
             }
 
             public void OverrideConstruct(Overrider<Func<object[], T>> overrider)
@@ -48,13 +59,13 @@ namespace Signum.Engine.Operations
 
             IEntity IConstructOperation.Construct(params object[] args)
             {
-                using (HeavyProfiler.Log("Construct", () => Symbol.Symbol.Key))
+                using (HeavyProfiler.Log("Construct", () => operationSymbol.Key))
                 {
-                    OperationLogic.AssertOperationAllowed(Symbol.Symbol, inUserInterface: false);
+                    OperationLogic.AssertOperationAllowed(operationSymbol, typeof(T), inUserInterface: false);
 
                     OperationLogEntity log = new OperationLogEntity
                     {
-                        Operation = Symbol.Symbol,
+                        Operation = operationSymbol,
                         Start = TimeZoneManager.Now,
                         User = UserHolder.Current?.ToLite()
                     };
@@ -63,33 +74,32 @@ namespace Signum.Engine.Operations
                     {
                         using (Transaction tr = new Transaction())
                         { 
-                            T result;
+                            T result = null;
                             using (OperationLogic.AllowSave<T>())
-                            using (OperationLogic.OnSuroundOperation(this, null, log, args))
-                            {
-                                result = Construct(args);
-
-                                AssertEntity(result);
-
-                                if ((result != null && !result.IsNew) || LogAlsoIfNotSaved)
+                                OperationLogic.OnSuroundOperation(this, log, null, args).EndUsing(_ =>
                                 {
-                                    log.SetTarget(result);
-                                    log.End = TimeZoneManager.Now;
-                                }
-                                else
-                                    log = null;
-                            }
+                                    result = Construct(args);
+
+                                    AssertEntity(result);
+
+                                    if ((result != null && !result.IsNew) || LogAlsoIfNotSaved)
+                                    {
+                                        log.SetTarget(result);
+                                        log.End = TimeZoneManager.Now;
+                                    }
+                                    else
+                                        log = null;
+                                });
 
                             if (log != null)
-                                using (ExecutionMode.Global())
-                                    log.Save();
+                                log.SaveLog();
 
                             return tr.Commit(result);
                         }
                     }
                     catch (Exception ex)
                     {
-                        OperationLogic.SetExceptionData(ex, Symbol.Symbol, null, args);
+                        OperationLogic.SetExceptionData(ex, operationSymbol, null, args);
 
                         if (LogAlsoIfNotSaved)
                         {
@@ -102,8 +112,7 @@ namespace Signum.Engine.Operations
                             {
                                 log.Exception = exLog.ToLite();
 
-                                using (ExecutionMode.Global())
-                                    log.Save();
+                                log.SaveLog();
 
                                 tr2.Commit();
                             }
@@ -114,6 +123,8 @@ namespace Signum.Engine.Operations
                 }
             }
 
+       
+
             protected virtual void AssertEntity(T entity)
             {
             }
@@ -121,33 +132,34 @@ namespace Signum.Engine.Operations
             public virtual void AssertIsValid()
             {
                 if (Construct == null)
-                    throw new InvalidOperationException("Operation {0} does not have Constructor initialized".FormatWith(Symbol.Symbol));
+                    throw new InvalidOperationException("Operation {0} does not have Constructor initialized".FormatWith(operationSymbol));
             }
 
             public override string ToString()
             {
-                return "{0} Construct {1}".FormatWith(Symbol.Symbol, typeof(T));
+                return "{0} Construct {1}".FormatWith(operationSymbol, typeof(T));
             }
         }
 
         public class ConstructFrom<F> : IConstructorFromOperation
             where F : class, IEntity
         {
-            protected readonly ConstructSymbol<T>.From<F> Symbol;
-            OperationSymbol IOperation.OperationSymbol { get { return Symbol.Symbol; } }
+            protected readonly OperationSymbol operationSymbol;
+            OperationSymbol IOperation.OperationSymbol { get { return operationSymbol; } }
             Type IOperation.OverridenType { get { return typeof(F); } }
             OperationType IOperation.OperationType { get { return OperationType.ConstructorFrom; } }
             IEnumerable<Enum> IOperation.UntypedFromStates { get { return null; } }
             IEnumerable<Enum> IOperation.UntypedToStates { get { return Enumerable.Empty<Enum>(); } }
             Type IOperation.StateType { get { return null; } }
 
-            public bool Lite { get; set; }
+            public bool Lite { get; set; } = true;
             public bool LogAlsoIfNotSaved { get; set; }
 
             bool IOperation.Returns { get { return true; } }
             Type IOperation.ReturnType { get { return typeof(T); } }
 
-            Type IEntityOperation.BaseType { get { return Symbol.BaseType; } }
+            protected readonly Type baseType;
+            Type IEntityOperation.BaseType { get { return baseType; } }
             bool IEntityOperation.HasCanExecute { get { return CanConstruct != null; } }
 
             public bool AllowsNew { get; set; }
@@ -172,8 +184,20 @@ namespace Signum.Engine.Operations
                 if (symbol == null)
                     throw AutoInitAttribute.ArgumentNullException(typeof(ConstructSymbol<T>.From<F>), nameof(symbol));
 
-                this.Symbol = symbol;
-                this.Lite = true;
+                this.operationSymbol = symbol.Symbol;
+                this.baseType = symbol.BaseType;
+            }
+
+            protected ConstructFrom(OperationSymbol operationSymbol, Type baseType)
+            {
+                this.operationSymbol = operationSymbol ?? throw new ArgumentNullException(nameof(operationSymbol));
+                this.baseType = baseType ?? throw new ArgumentNullException(nameof(baseType));
+            }
+
+            public static ConstructFrom<F> Untyped<B>(ConstructSymbol<B>.From<F> symbol)
+                where B : class, IEntity
+            {
+                return new ConstructFrom<F>(symbol.Symbol, symbol.BaseType);
             }
 
             string IEntityOperation.CanExecute(IEntity entity)
@@ -194,9 +218,9 @@ namespace Signum.Engine.Operations
 
             IEntity IConstructorFromOperation.Construct(IEntity origin, params object[] args)
             {
-                using (HeavyProfiler.Log("ConstructFrom", () => Symbol.Symbol.Key))
+                using (HeavyProfiler.Log("ConstructFrom", () => operationSymbol.Key))
                 {
-                    OperationLogic.AssertOperationAllowed(Symbol.Symbol, inUserInterface: false);
+                    OperationLogic.AssertOperationAllowed(operationSymbol, origin.GetType(), inUserInterface: false);
 
                     string error = OnCanConstruct(origin);
                     if (error != null)
@@ -204,46 +228,45 @@ namespace Signum.Engine.Operations
 
                     OperationLogEntity log = new OperationLogEntity
                     {
-                        Operation = Symbol.Symbol,
+                        Operation = operationSymbol,
                         Start = TimeZoneManager.Now,
                         User = UserHolder.Current?.ToLite(),
-                        Origin = origin.ToLiteFat(),
+                        Origin = origin.ToLite(origin.IsNew),
                     };
 
                     try
                     {
                         using (Transaction tr = new Transaction())
                         {
-                            T result;
+                            T result = null;
                             using (OperationLogic.AllowSave(origin.GetType()))
                             using (OperationLogic.AllowSave<T>())
-                            using (OperationLogic.OnSuroundOperation(this, log, origin, args))
-                            {
-                                result = Construct((F)origin, args);
-
-                                AssertEntity(result);
-
-                                if ((result != null && !result.IsNew) || LogAlsoIfNotSaved)
+                                OperationLogic.OnSuroundOperation(this, log, origin, args).EndUsing(_ =>
                                 {
-                                    log.End = TimeZoneManager.Now;
-                                    log.SetTarget(result);
-                                }
-                                else
-                                {
-                                    log = null;
-                                }
-                            }
+                                    result = Construct((F)origin, args);
+
+                                    AssertEntity(result);
+
+                                    if ((result != null && !result.IsNew) || LogAlsoIfNotSaved)
+                                    {
+                                        log.End = TimeZoneManager.Now;
+                                        log.SetTarget(result);
+                                    }
+                                    else
+                                    {
+                                        log = null;
+                                    }
+                                });
 
                             if (log != null)
-                                using (ExecutionMode.Global())
-                                    log.Save();
+                                log.SaveLog();
 
                             return tr.Commit(result);
                         }
                     }
                     catch (Exception ex)
                     {
-                        OperationLogic.SetExceptionData(ex, Symbol.Symbol, (Entity)origin, args);
+                        OperationLogic.SetExceptionData(ex, operationSymbol, (Entity)origin, args);
 
                         if (LogAlsoIfNotSaved)
                         {
@@ -256,8 +279,7 @@ namespace Signum.Engine.Operations
                             {
                                 log.Exception = exLog.ToLite();
 
-                                using (ExecutionMode.Global())
-                                    log.Save();
+                                log.SaveLog();
 
                                 tr2.Commit();
                             }
@@ -276,12 +298,12 @@ namespace Signum.Engine.Operations
             public virtual void AssertIsValid()
             {
                 if (Construct == null)
-                    throw new InvalidOperationException("Operation {0} does not hace Construct initialized".FormatWith(Symbol.Symbol));
+                    throw new InvalidOperationException("Operation {0} does not hace Construct initialized".FormatWith(operationSymbol));
             }
 
             public override string ToString()
             {
-                return "{0} ConstructFrom {1} -> {2}".FormatWith(Symbol.Symbol, typeof(F), typeof(T));
+                return "{0} ConstructFrom {1} -> {2}".FormatWith(operationSymbol, typeof(F), typeof(T));
             }
 
         }
@@ -289,13 +311,15 @@ namespace Signum.Engine.Operations
         public class ConstructFromMany<F> : IConstructorFromManyOperation
             where F : class, IEntity
         {
-            protected readonly ConstructSymbol<T>.FromMany<F> Symbol;
-            OperationSymbol IOperation.OperationSymbol { get { return Symbol.Symbol; } }
+            protected readonly OperationSymbol operationSymbol;
+            OperationSymbol IOperation.OperationSymbol { get { return operationSymbol; } }
             Type IOperation.OverridenType { get { return typeof(F); } }
             OperationType IOperation.OperationType { get { return OperationType.ConstructorFromMany; } }
             bool IOperation.Returns { get { return true; } }
             Type IOperation.ReturnType { get { return typeof(T); } }
-            Type IConstructorFromManyOperation.BaseType { get { return Symbol.BaseType; } }
+
+            protected readonly Type baseType;
+            Type IConstructorFromManyOperation.BaseType { get { return baseType; } }
             IEnumerable<Enum> IOperation.UntypedFromStates { get { return null; } }
             IEnumerable<Enum> IOperation.UntypedToStates { get { return Enumerable.Empty<Enum>(); } }
             Type IOperation.StateType { get { return null; } }
@@ -314,18 +338,36 @@ namespace Signum.Engine.Operations
                 if (symbol == null)
                     throw AutoInitAttribute.ArgumentNullException(typeof(ConstructSymbol<T>.FromMany<F>), nameof(symbol));
 
-                this.Symbol = symbol;
+                this.operationSymbol = symbol.Symbol;
+                this.baseType = symbol.BaseType;
+
             }
+
+            protected ConstructFromMany(OperationSymbol operationSymbol, Type baseType)
+            {
+                this.operationSymbol = operationSymbol ?? throw new ArgumentNullException(nameof(operationSymbol));
+                this.baseType = baseType ?? throw new ArgumentNullException(nameof(baseType));
+            }
+
+            public static ConstructFromMany<F> Untyped<B>(ConstructSymbol<B>.FromMany<F> symbol)
+                where B : class, IEntity
+            {
+                return new ConstructFromMany<F>(symbol.Symbol, symbol.BaseType);
+            }
+
 
             IEntity IConstructorFromManyOperation.Construct(IEnumerable<Lite<IEntity>> lites, params object[] args)
             {
-                using (HeavyProfiler.Log("ConstructFromMany", () => Symbol.Symbol.Key))
+                using (HeavyProfiler.Log("ConstructFromMany", () => operationSymbol.Key))
                 {
-                    OperationLogic.AssertOperationAllowed(Symbol.Symbol, inUserInterface: false);
+                    foreach (var type in lites.Select(a => a.EntityType).Distinct())
+                    {
+                        OperationLogic.AssertOperationAllowed(operationSymbol, type, inUserInterface: false);
+                    }
 
                     OperationLogEntity log = new OperationLogEntity
                     {
-                        Operation = Symbol.Symbol,
+                        Operation = operationSymbol,
                         Start = TimeZoneManager.Now,
                         User = UserHolder.Current?.ToLite()
                     };
@@ -334,37 +376,36 @@ namespace Signum.Engine.Operations
                     {
                         using (Transaction tr = new Transaction())
                         {
-                            T result;
+                            T result = null;
 
                             using (OperationLogic.AllowSave<F>())
                             using (OperationLogic.AllowSave<T>())
-                            using (OperationLogic.OnSuroundOperation(this, log, null, args))
-                            {
-                                result = OnConstruct(lites.Cast<Lite<F>>().ToList(), args);
-
-                                AssertEntity(result);
-
-                                if ((result != null && !result.IsNew) || LogAlsoIfNotSaved)
+                                OperationLogic.OnSuroundOperation(this, log, null, args).EndUsing(_ =>
                                 {
-                                    log.End = TimeZoneManager.Now;
-                                    log.SetTarget(result);
-                                }
-                                else
-                                {
-                                    log = null;
-                                }
-                            }
+                                    result = OnConstruct(lites.Cast<Lite<F>>().ToList(), args);
+
+                                    AssertEntity(result);
+
+                                    if ((result != null && !result.IsNew) || LogAlsoIfNotSaved)
+                                    {
+                                        log.End = TimeZoneManager.Now;
+                                        log.SetTarget(result);
+                                    }
+                                    else
+                                    {
+                                        log = null;
+                                    }
+                                });
 
                             if (log != null)
-                                using (ExecutionMode.Global())
-                                    log.Save();
+                                log.SaveLog();
 
                             return tr.Commit(result);
                         }
                     }
                     catch (Exception ex)
                     {
-                        OperationLogic.SetExceptionData(ex, Symbol.Symbol, null, args);
+                        OperationLogic.SetExceptionData(ex, operationSymbol, null, args);
 
                         if (LogAlsoIfNotSaved)
                         {
@@ -377,8 +418,7 @@ namespace Signum.Engine.Operations
                             {
                                 log.Exception = exLog.ToLite();
 
-                                using (ExecutionMode.Global())
-                                    log.Save();
+                                log.SaveLog();
 
                                 tr2.Commit();
                             }
@@ -401,12 +441,12 @@ namespace Signum.Engine.Operations
             public virtual void AssertIsValid()
             {
                 if (Construct == null)
-                    throw new InvalidOperationException("Operation {0} Constructor initialized".FormatWith(Symbol));
+                    throw new InvalidOperationException("Operation {0} Constructor initialized".FormatWith(operationSymbol));
             }
 
             public override string ToString()
             {
-                return "{0} ConstructFromMany {1} -> {2}".FormatWith(Symbol, typeof(F), typeof(T));
+                return "{0} ConstructFromMany {1} -> {2}".FormatWith(operationSymbol, typeof(F), typeof(T));
             }
         }
 
@@ -444,10 +484,7 @@ namespace Signum.Engine.Operations
 
             public Execute(ExecuteSymbol<T> symbol)
             {
-                if (symbol == null)
-                    throw AutoInitAttribute.ArgumentNullException(typeof(ExecuteSymbol<T>), nameof(symbol));
-
-                this.Symbol = symbol;
+                this.Symbol = symbol ?? throw AutoInitAttribute.ArgumentNullException(typeof(ExecuteSymbol<T>), nameof(symbol));
                 this.Lite = true;
             }
 
@@ -471,7 +508,7 @@ namespace Signum.Engine.Operations
             {
                 using (HeavyProfiler.Log("Execute", () => Symbol.Symbol.Key))
                 {
-                    OperationLogic.AssertOperationAllowed(Symbol.Symbol, inUserInterface: false);
+                    OperationLogic.AssertOperationAllowed(Symbol.Symbol, entity.GetType(), inUserInterface: false);
 
                     string error = OnCanExecute((T)entity);
                     if (error != null)
@@ -489,20 +526,19 @@ namespace Signum.Engine.Operations
                         using (Transaction tr = new Transaction())
                         {
                             using (OperationLogic.AllowSave(entity.GetType()))
-                            using (OperationLogic.OnSuroundOperation(this, log, entity, args))
-                            {
-                                Execute((T)entity, args);
+                                OperationLogic.OnSuroundOperation(this, log, entity, args).EndUsing(_ =>
+                                {
+                                    Execute((T)entity, args);
 
-                                AssertEntity((T)entity);
+                                    AssertEntity((T)entity);
 
-                                entity.Save(); //Nothing happens if already saved
+                                    entity.Save(); //Nothing happens if already saved
 
-                                log.SetTarget(entity);
-                                log.End = TimeZoneManager.Now;
-                            }
+                                    log.SetTarget(entity);
+                                    log.End = TimeZoneManager.Now;
+                                });
 
-                            using (ExecutionMode.Global())
-                                log.Save();
+                            log.SaveLog();
 
                             tr.Commit();
                         }
@@ -527,8 +563,7 @@ namespace Signum.Engine.Operations
                                 Exception = exLog.ToLite(),
                             };
 
-                            using (ExecutionMode.Global())
-                                newLog.Save();
+                            newLog.SaveLog();
 
                             tr2.Commit();
                         }
@@ -588,10 +623,7 @@ namespace Signum.Engine.Operations
 
             public Delete(DeleteSymbol<T> symbol)
             {
-                if (symbol == null)
-                    throw AutoInitAttribute.ArgumentNullException(typeof(DeleteSymbol<T>), nameof(symbol));
-
-                this.Symbol = symbol;
+                this.Symbol = symbol ?? throw AutoInitAttribute.ArgumentNullException(typeof(DeleteSymbol<T>), nameof(symbol));
                 this.Lite = true;
             }
 
@@ -615,7 +647,7 @@ namespace Signum.Engine.Operations
             {
                 using (HeavyProfiler.Log("Delete", () => Symbol.Symbol.Key))
                 {
-                    OperationLogic.AssertOperationAllowed(Symbol.Symbol, inUserInterface: false);
+                    OperationLogic.AssertOperationAllowed(Symbol.Symbol, entity.GetType(), inUserInterface: false);
 
                     string error = OnCanDelete((T)entity);
                     if (error != null)
@@ -629,46 +661,44 @@ namespace Signum.Engine.Operations
                     };
 
                     using (OperationLogic.AllowSave(entity.GetType()))
-                    using (OperationLogic.OnSuroundOperation(this, log, entity, args))
-                    {
-                        try
+                        OperationLogic.OnSuroundOperation(this, log, entity, args).EndUsing(_ =>
                         {
-                            using (Transaction tr = new Transaction())
+                            try
                             {
-                                OnDelete((T)entity, args);
+                                using (Transaction tr = new Transaction())
+                                {
+                                    OnDelete((T)entity, args);
 
-                                log.SetTarget(entity);
-                                log.End = TimeZoneManager.Now;
+                                    log.SetTarget(entity);
+                                    log.End = TimeZoneManager.Now;
 
-                                using (ExecutionMode.Global())
-                                    log.Save();
+                                    log.SaveLog();
 
-                                tr.Commit();
+                                    tr.Commit();
+                                }
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            OperationLogic.SetExceptionData(ex, Symbol.Symbol, (Entity)entity, args);
+                            catch (Exception ex)
+                            {
+                                OperationLogic.SetExceptionData(ex, Symbol.Symbol, (Entity)entity, args);
 
-                            if (Transaction.InTestTransaction)
+                                if (Transaction.InTestTransaction)
+                                    throw;
+
+                                var exLog = ex.LogException();
+
+                                using (Transaction tr2 = Transaction.ForceNew())
+                                {
+                                    log.Target = entity.ToLite();
+                                    log.Exception = exLog.ToLite();
+
+                                    log.SaveLog();
+
+                                    tr2.Commit();
+                                }
+
                                 throw;
-
-                            var exLog = ex.LogException();
-
-                            using (Transaction tr2 = Transaction.ForceNew())
-                            {
-                                log.Target = entity.ToLite();
-                                log.Exception = exLog.ToLite();
-
-                                using (ExecutionMode.Global())
-                                    log.Save();
-
-                                tr2.Commit();
                             }
-
-                            throw;
-                        }
-                    }
+                        });
                 }
             }
 

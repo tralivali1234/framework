@@ -2,6 +2,8 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Signum.Utilities;
+using Signum.Entities;
+using System;
 
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
@@ -25,5 +27,9 @@ using Signum.Utilities;
 
 [assembly: InternalsVisibleTo("Signum.Engine")]
 [assembly: InternalsVisibleTo("Signum.Web")]
+[assembly: InternalsVisibleTo("Signum.React")]
 
 [assembly: DefaultAssemblyCulture("en")]
+
+[assembly: ImportInTypeScript(typeof(DayOfWeek), "Signum.Entities")]
+[assembly: ImportInTypeScript(typeof(CollectionMessage), "Signum.Entities")]

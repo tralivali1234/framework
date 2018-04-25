@@ -43,10 +43,22 @@ namespace Signum.Engine.Extensions.Basics
                 {
                     using (AvoidCache())
                     {
-                        SemiSymbol.SetSemiSymbolIdsAndNames<T>(Database.RetrieveAll<T>().Where(a => a.Key.HasText()).ToDictionary(a => a.Key, a => Tuple.Create(a.Id, a.Name)));
-                        return getSemiSymbols().ToDictionary(a => a.Key);
+                        var current = Database.RetrieveAll<T>().Where(a => a.Key.HasText());
+
+                        var result = EnumerableExtensions.JoinRelaxed(
+                          current,
+                          getSemiSymbols(),
+                          c => c.Key,
+                          s => s.Key,
+                          (c, s) => { s.SetIdAndName((c.Id, c.Name)); return s; },
+                          "caching " + typeof(T).Name);
+
+                        SemiSymbol.SetSemiSymbolIdsAndNames<T>(current.ToDictionary(a => a.Key, a => (a.Id, a.Name)));
+                        return result.ToDictionary(a => a.Key);
                     }
-                }, new InvalidateWith(typeof(T)));
+                }, 
+                new InvalidateWith(typeof(T)),
+                Schema.Current.InvalidateMetadata);
 
                 sb.Schema.EntityEvents<T>().Retrieved += SymbolLogic_Retrieved;
             }
@@ -55,7 +67,15 @@ namespace Signum.Engine.Extensions.Basics
         static void SymbolLogic_Retrieved(T ident)
         {
             if (!avoidCache && ident.Key.HasText())
-                ident.FieldInfo = lazy.Value.GetOrThrow(ident.Key).FieldInfo;
+                try
+                {
+                    ident.FieldInfo = lazy.Value.GetOrThrow(ident.Key).FieldInfo;
+                }
+                catch (Exception e) when (StartParameters.IgnoredDatabaseMismatches != null)
+                {
+                    //Could happen when not 100% synchronized
+                    StartParameters.IgnoredDatabaseMismatches.Add(e);
+                }
         }
 
         static SqlPreCommand Schema_Generating()
@@ -86,18 +106,18 @@ namespace Signum.Engine.Extensions.Basics
             IEnumerable<T> should = CreateSemiSymbols();
 
             using (replacements.WithReplacedDatabaseName())
-                return Synchronizer.SynchronizeScriptReplacing(replacements, typeof(T).Name,
+                return Synchronizer.SynchronizeScriptReplacing(replacements, typeof(T).Name, Spacing.Double,
                     should.ToDictionary(s => s.Key),
                     current.Where(c => c.Key.HasText()).ToDictionary(c => c.Key),
-                    (k, s) => table.InsertSqlSync(s),
-                    (k, c) => table.DeleteSqlSync(c),
-                    (k, s, c) =>
+                    createNew: (k, s) => table.InsertSqlSync(s),
+                    removeOld: (k, c) => table.DeleteSqlSync(c, s => s.Key == c.Key),
+                    mergeBoth: (k, s, c) =>
                     {
-                        var originalName = c.Key;
+                        var originalKey = c.Key;
                         c.Key = s.Key;
                         c.Name = s.Name;
-                        return table.UpdateSqlSync(c, comment: originalName);
-                    }, Spacing.Double);
+                        return table.UpdateSqlSync(c, ss => ss.Key == originalKey, comment: originalKey);
+                    });
         }
 
         static Dictionary<string, T> AssertStarted()

@@ -9,12 +9,14 @@ using System.Text.RegularExpressions;
 using System.Globalization;
 using System.Reflection;
 using System.Collections.Concurrent;
+using System.Collections;
 
 namespace Signum.Utilities
 {
     public static class Csv
     {
         public static Encoding DefaultEncoding = Encoding.GetEncoding(1252);
+        public static CultureInfo DefaultCulture = null;
 
         public static string ToCsvFile<T>(this IEnumerable<T> collection, string fileName, Encoding encoding = null, CultureInfo culture = null, bool writeHeaders = true, bool autoFlush = false, bool append = false,
             Func<CsvColumnInfo<T>, CultureInfo, Func<object, string>> toStringFactory = null)
@@ -39,36 +41,61 @@ namespace Signum.Utilities
             Func<CsvColumnInfo<T>, CultureInfo, Func<object, string>> toStringFactory = null)
         {
             encoding = encoding ?? DefaultEncoding;
-            culture = culture ?? CultureInfo.CurrentCulture;
+            culture = culture ?? DefaultCulture ?? CultureInfo.CurrentCulture;
 
             string separator = culture.TextInfo.ListSeparator;
 
-            var columns = ColumnInfoCache<T>.Columns;
-            var members = columns.Select(c => c.MemberEntry).ToList();
-            var toString = columns.Select(c => GetToString(culture, c, toStringFactory)).ToList();
-
-            using (StreamWriter sw = new StreamWriter(stream, encoding) { AutoFlush = autoFlush })
+            if (typeof(IList).IsAssignableFrom(typeof(T)))
             {
-                if (writeHeaders)
-                    sw.WriteLine(members.ToString(m => HandleSpaces(m.Name), separator));
-
-                foreach (var item in collection)
+                using (StreamWriter sw = new StreamWriter(stream, encoding) { AutoFlush = autoFlush })
                 {
-                    for (int i = 0; i < members.Count; i++)
+                    foreach (IList row in collection)
                     {
-                        var obj = members[i].Getter(item); 
-                        
-                        var str = EncodeCsv(toString[i](obj), culture);
+                        for (int i = 0; i < row.Count; i++)
+                        {
+                            var obj = row[i];
 
-                        sw.Write(str);
-                        if(i < members.Count - 1)
-                            sw.Write(separator);
-                        else
-                            sw.WriteLine();
+                            var str = EncodeCsv(ConvertToString(obj, null, culture), culture);
+
+                            sw.Write(str);
+                            if (i < row.Count - 1)
+                                sw.Write(separator);
+                            else
+                                sw.WriteLine();
+                        }
+                    }
+                }
+            }
+            else
+            {
+                var columns = ColumnInfoCache<T>.Columns;
+                var members = columns.Select(c => c.MemberEntry).ToList();
+                var toString = columns.Select(c => GetToString(culture, c, toStringFactory)).ToList();
+
+                using (StreamWriter sw = new StreamWriter(stream, encoding) { AutoFlush = autoFlush })
+                {
+                    if (writeHeaders)
+                        sw.WriteLine(members.ToString(m => HandleSpaces(m.Name), separator));
+
+                    foreach (var item in collection)
+                    {
+                        for (int i = 0; i < members.Count; i++)
+                        {
+                            var obj = members[i].Getter(item);
+
+                            var str = EncodeCsv(toString[i](obj), culture);
+
+                            sw.Write(str);
+                            if (i < members.Count - 1)
+                                sw.Write(separator);
+                            else
+                                sw.WriteLine();
+                        }
                     }
                 }
             }
         }
+
 
         static string EncodeCsv(string p, CultureInfo culture)
         {
@@ -102,8 +129,7 @@ namespace Signum.Utilities
             if (obj == null)
                 return "";
 
-            IFormattable f = obj as IFormattable;
-            if (f != null)
+            if (obj is IFormattable f)
                 return f.ToString(null, culture);
             else
                 return obj.ToString();
@@ -117,7 +143,7 @@ namespace Signum.Utilities
         public static List<T> ReadFile<T>(string fileName, Encoding encoding = null, CultureInfo culture = null, int skipLines = 1, CsvReadOptions<T> options = null) where T : class, new()
         {
             encoding = encoding ?? DefaultEncoding;
-            culture = culture ?? CultureInfo.CurrentCulture;
+            culture = culture ?? DefaultCulture ?? CultureInfo.CurrentCulture;
 
             using (FileStream fs = File.OpenRead(fileName))
                 return ReadStream<T>(fs, encoding, culture, skipLines, options).ToList();
@@ -132,7 +158,7 @@ namespace Signum.Utilities
         public static IEnumerable<T> ReadStream<T>(Stream stream, Encoding encoding = null, CultureInfo culture = null, int skipLines = 1, CsvReadOptions<T> options = null) where T : class, new()
         {
             encoding = encoding ?? DefaultEncoding;
-            culture = culture ?? CultureInfo.CurrentCulture;
+            culture = culture ?? DefaultCulture ?? CultureInfo.CurrentCulture;
             if (options == null)
                 options = new CsvReadOptions<T>();
 
@@ -149,6 +175,7 @@ namespace Signum.Utilities
                     for (int i = 0; i < skipLines; i++)
                         sr.ReadLine();
 
+                    var line = skipLines;
                     while(true)
                     {
                         string csvLine = sr.ReadLine();
@@ -168,8 +195,10 @@ namespace Signum.Utilities
                         }
                         catch(Exception e)
                         {
+                            e.Data["row"] = line;
+
                             if (options.SkipError == null || !options.SkipError(e, m))
-                                throw;
+                                throw new ParseCsvException(e);
                         }
 
                         if (t != null)
@@ -188,6 +217,7 @@ namespace Signum.Utilities
                     if (skipLines > 0)
                         matches = matches.Skip(skipLines);
 
+                    int line = skipLines;
                     foreach (var m in matches)
                     {
                         if (m.Length > 0)
@@ -199,12 +229,15 @@ namespace Signum.Utilities
                             }
                             catch (Exception e)
                             {
+                                e.Data["row"] = line;
+
                                 if (options.SkipError == null || !options.SkipError(e, m))
-                                    throw;
+                                    throw new ParseCsvException(e);
                             }
                             if (t != null)
                                 yield return t;
                         }
+                        line++;
                     }
                 }
             }
@@ -216,7 +249,7 @@ namespace Signum.Utilities
             if (options == null)
                 options = new CsvReadOptions<T>();
 
-            culture = culture ?? CultureInfo.CurrentCulture;
+            culture = culture ?? DefaultCulture ?? CultureInfo.CurrentCulture;
 
             Regex regex = GetRegex(culture, options.RegexTimeout);
 
@@ -247,17 +280,26 @@ namespace Signum.Utilities
             var vals = m.Groups["val"].Captures;
 
             if (vals.Count < members.Count)
-                throw new FormatException("Only {0} coulumns found (instead of {1}) in line: ".FormatWith(vals.Count, members.Count, m.Value));
+                throw new FormatException("Only {0} columns found (instead of {1}) in line: {2}".FormatWith(vals.Count, members.Count, m.Value));
 
             T t = new T();
             for (int i = 0; i < members.Count; i++)
             {
-                string str = DecodeCsv(vals[i].Value);
+                string str = null; 
+                try
+                {
+                    str = DecodeCsv(vals[i].Value);
 
-                object val = parsers[i](str);
+                    object val = parsers[i](str);
 
-                members[i].Setter(t, val);
-
+                    members[i].Setter(t, val);
+                }
+                catch (Exception e)
+                {
+                    e.Data["value"] = str;
+                    e.Data["member"] = members[i].MemberInfo.Name;
+                    throw;
+                }
             }
             return t;
         }
@@ -282,18 +324,12 @@ namespace Signum.Utilities
 
         static string DecodeCsv(string s)
         {
-            if (s.StartsWith("\""))
+            if (s.StartsWith("\"") && s.EndsWith("\""))
             {
-                if (!s.EndsWith("\""))
-                    throw new FormatException("Cell starts by quotes but not ends with quotes".FormatWith(s));
-
                 string str = s.Substring(1, s.Length - 2).Replace("\"\"", "\"");
 
                 return Regex.Replace(str, "(?<!\r)\n", "\r\n");
             }
-
-            if (s.Contains("\""))
-                throw new FormatException("Cell has quotes ina unexpected position".FormatWith(s));
 
             return s;
         }
@@ -347,6 +383,36 @@ namespace Signum.Utilities
             this.Index = index;
             this.MemberEntry = memberEntry;
             this.Format = format;
+        }
+    }
+
+
+    [Serializable]
+    public class ParseCsvException : Exception
+    {
+        public int? Row { get; set; }
+        public string Member { get; set; }
+        public string Value { get; set; }
+
+        public ParseCsvException() { }
+        public ParseCsvException(Exception inner) : base(inner.Message, inner)
+        {
+            this.Row = (int?)inner.Data["row"];
+            this.Value = (string)inner.Data["value"];
+            this.Member = (string)inner.Data["member"];
+
+        }
+        protected ParseCsvException(
+          System.Runtime.Serialization.SerializationInfo info,
+          System.Runtime.Serialization.StreamingContext context) : base(info, context)
+        { }
+
+        public override string Message
+        {
+            get
+            {
+                return $"(Row: {this.Row}, Member: {this.Member}, Value: '{this.Value}') {base.Message})";
+            }
         }
     }
 }

@@ -9,7 +9,7 @@ using System.Collections;
 
 namespace Signum.Utilities
 {
-    public class Statics
+    public static class Statics
     {
         static Dictionary<string, IThreadVariable> threadVariables = new Dictionary<string, IThreadVariable>();
 
@@ -22,7 +22,7 @@ namespace Signum.Utilities
        
         public static Dictionary<string, object> ExportThreadContext(bool force = false)
         {
-            return threadVariables.Where(t => !t.Value.IsClean && (!t.Value.AvoidExportImport || force)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value.UntypedValue);
+            return threadVariables.Where(t => !t.Value.IsClean && (!t.Value.AvoidExportImport || force)).ToDictionaryEx(kvp => kvp.Key, kvp => kvp.Value.UntypedValue);
         }
 
         public static IDisposable ImportThreadContext(Dictionary<string, object> context)
@@ -117,9 +117,7 @@ namespace Signum.Utilities
                 if (Value.Equals(default(T)))
                     return true;
 
-                var col = Value as IEnumerable;
-
-                if (col != null)
+                if (Value is IEnumerable col)
                 {
                     foreach (var item in col)
                     {
@@ -143,7 +141,7 @@ namespace Signum.Utilities
 
     public class ThreadVariable<T> : Variable<T>, IThreadVariable
     {
-        ThreadLocal<T> store = new ThreadLocal<T>();
+        AsyncLocal<T> store = new AsyncLocal<T>();
 
         internal ThreadVariable(string name) : base(name) { }
 
@@ -187,6 +185,33 @@ namespace Signum.Utilities
         SessionVariable<T> CreateVariable<T>(string name);
     }
 
+    public class VoidSessionFactory : ISessionFactory
+    {
+        public SessionVariable<T> CreateVariable<T>(string name)
+        {
+            return new VoidVariable<T>(name);
+        }
+
+        class VoidVariable<T> : SessionVariable<T>
+        {
+            public override Func<T> ValueFactory { get; set; }
+
+            public VoidVariable(string name)
+                : base(name)
+            { }
+
+            public override T Value
+            {
+                get { return default(T); }
+                set { throw new InvalidOperationException("No session found to set '{0}'".FormatWith(this.Name)); ; }
+            }
+
+            public override void Clean()
+            {   
+            }
+        }
+    }
+
     public class SingletonSessionFactory : ISessionFactory
     {
         public static Dictionary<string, object> singletonSession = new Dictionary<string, object>();
@@ -214,8 +239,7 @@ namespace Signum.Utilities
             {
                 get
                 {
-                    object result;
-                    if (singletonSession.TryGetValue(Name, out result))
+                    if (singletonSession.TryGetValue(Name, out object result))
                         return (T)result;
 
                     return GetDefaulValue();
@@ -289,8 +313,7 @@ namespace Signum.Utilities
 
                     if (dic != null)
                     {
-                        object result;
-                        if (dic.TryGetValue(Name, out result))
+                        if (dic.TryGetValue(Name, out object result))
                             return (T)result;
 
                         return GetDefaulValue();

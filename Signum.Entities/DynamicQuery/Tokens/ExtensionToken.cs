@@ -21,7 +21,8 @@ namespace Signum.Entities.DynamicQuery
             var shouldHaveImplementations = typeof(IEntity).IsAssignableFrom((isProjection ? type.ElementType() : type).CleanType());
 
             if (shouldHaveImplementations && implementations == null)
-                throw new ArgumentException("Extension token '{0}' (of type {1}) registered on type {2} has no implementations".FormatWith(key, type.TypeName(), parent.Type.CleanType().TypeName()));
+                throw new ArgumentException(@"Impossible to determine automatically the implementations for extension token '{0}' (of type {1}) registered on type {2}.  
+Consider using dqm.RegisterExpression(({2} e) => e.{0}).ForceImplementations = Implementations.By(typeof({1}));".FormatWith(key, type.TypeName(), parent.Type.CleanType().TypeName()));
 
             this.key= key;
             this.type = type;
@@ -46,7 +47,7 @@ namespace Signum.Entities.DynamicQuery
         }
 
         Type type;
-        public override Type Type { get { return type.BuildLiteNulifyUnwrapPrimaryKey(new[] { this.GetPropertyRoute() }); } }
+        public override Type Type { get { return type.BuildLiteNullifyUnwrapPrimaryKey(new[] { this.GetPropertyRoute() }); } }
 
         string key;
         public override string Key { get { return key; } }

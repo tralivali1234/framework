@@ -183,7 +183,7 @@ namespace Signum.Windows
                     t => Server.ServerTypes.GetOrThrow(t).CleanName,
                     Server.TryGetType);
 
-                TypeEntity.SetTypeDNCallbacks(
+                TypeEntity.SetTypeEntityCallbacks(
                     t => Server.ServerTypes.GetOrThrow(t),
                     tdn => Server.GetType(tdn.CleanName));
             }
@@ -206,10 +206,9 @@ namespace Signum.Windows
 
                 TaskNormalWindow += TaskSetIconNormalWindow;
 
-                TaskNormalWindow += TaskSetLabelNormalWindow;    
+                TaskNormalWindow += TaskSetLabelNormalWindow;
 
-                if (Initializing != null)
-                    Initializing();
+                Initializing?.Invoke();
 
                 initialized = true;
             }
@@ -282,7 +281,7 @@ namespace Signum.Windows
                     if (entity == null)
                     {
                         Lite<Entity> lite = (Lite<Entity>)entityOrLite;
-                        entity = lite.UntypedEntityOrNull ?? Server.RetrieveAndForget(lite);
+                        entity = lite.EntityOrNull ?? Server.RetrieveAndForget(lite);
                     }
 
                     EntitySettings es = AssertViewableEntitySettings(entity);
@@ -343,7 +342,7 @@ namespace Signum.Windows
             {
                 Entity ident = (Entity)result;
 
-                bool saveProtected = ((ViewOptions)options).SaveProtected ?? OperationClient.SaveProtected(ident.GetType());
+                bool saveProtected = ((ViewOptions)options).RequiresSaveOperation ?? EntityKindCache.RequiresSaveOperation(ident.GetType());
 
                 if (GraphExplorer.HasChanges(ident))
                 {
@@ -379,11 +378,10 @@ namespace Signum.Windows
                 Common.SetIsReadOnly(win, true);
 
             if (options is ViewOptions)
-                win.SaveProtected = ((ViewOptions)options).SaveProtected ??
-                    (typeof(Entity).IsAssignableFrom(entityType) && OperationClient.SaveProtected(entityType)); //Matters even on Ok
+                win.SaveProtected = ((ViewOptions)options).RequiresSaveOperation ??
+                    (typeof(Entity).IsAssignableFrom(entityType) && EntityKindCache.RequiresSaveOperation(entityType)); //Matters even on Ok
 
-            if (TaskNormalWindow != null)
-                TaskNormalWindow(win, entity);
+            TaskNormalWindow?.Invoke(win, entity);
 
             return win;
         }
@@ -500,13 +498,12 @@ namespace Signum.Windows
             if (only != null)
                 return only;
 
-            Type sel;
-            if (SelectorWindow.ShowDialog(filtered, out sel,
-                elementIcon: t => Navigator.Manager.GetEntityIcon(t, true),
-                elementText: t => t.NiceName(),
-                title: SelectorMessage.TypeSelector.NiceToString(),
-                message: SelectorMessage.PleaseSelectAType.NiceToString(),
-                owner: parent))
+            if (SelectorWindow.ShowDialog(filtered, out Type sel,
+    elementIcon: t => Navigator.Manager.GetEntityIcon(t, true),
+    elementText: t => t.NiceName(),
+    title: SelectorMessage.TypeSelector.NiceToString(),
+    message: SelectorMessage.PleaseSelectAType.NiceToString(),
+    owner: parent))
                 return sel;
             return null;
         }
@@ -612,7 +609,7 @@ namespace Signum.Windows
 
         public event Func<ModifiableEntity, EntityButtonContext, EmbeddedWidget> OnGetEmbeddedWigets;
 
-        internal List<EmbeddedWidget> GetEmbeddedWigets(ModifiableEntity entity, EntityButtonContext ctx)
+        public List<EmbeddedWidget> GetEmbeddedWigets(ModifiableEntity entity, EntityButtonContext ctx)
         {
             List<EmbeddedWidget> elements = new List<EmbeddedWidget>();
 
@@ -640,8 +637,7 @@ namespace Signum.Windows
 
                 win.Show();
 
-                if (afterShown != null)
-                    afterShown(win);
+                afterShown?.Invoke(win);
             }
         }
 

@@ -19,7 +19,9 @@ using Signum.Entities.Internal;
 
 namespace Signum.Entities
 {
+#pragma warning disable IDE1006
     public interface Lite<out T> : IComparable, IComparable<Lite<Entity>>
+#pragma warning restore IDE1006
         where T : class, IEntity
     {
         T Entity { get; }
@@ -29,8 +31,7 @@ namespace Signum.Entities
         bool IsNew { get;  }
         PrimaryKey? IdOrNull { get; }
         Type EntityType { get; }
-        Entity UntypedEntityOrNull { get; }
-
+        
         void ClearEntity();      
         void SetEntity(Entity ei);
         void SetToString(string toStr);
@@ -153,28 +154,27 @@ namespace Signum.Entities
                 if (id == null)
                     throw new InvalidOperationException("Removing entity not allowed in new Lite");
 
-                this.toStr = this.UntypedEntityOrNull?.ToString();
+                this.toStr = this.entityOrNull?.ToString();
                 this.entityOrNull = null;
             }
 
             public void RefreshId()
             {
-                id = UntypedEntityOrNull.Id;
+                id = entityOrNull.Id;
             }
-
-
-            protected internal override void PreSaving(ref bool graphModified)
+            
+            protected internal override void PreSaving(PreSavingContext ctx)
             {
-                if (UntypedEntityOrNull != null)
+                if (entityOrNull != null)
                 {
-                    UntypedEntityOrNull.PreSaving(ref graphModified);
+                    entityOrNull.PreSaving(ctx);
                 }
             }
 
             public override string ToString()
             {
-                if (this.UntypedEntityOrNull != null)
-                    return this.UntypedEntityOrNull.ToString();
+                if (this.entityOrNull != null)
+                    return this.entityOrNull.ToString();
 
                 return this.toStr;
             }
@@ -301,8 +301,7 @@ namespace Signum.Entities
 
         public static Lite<Entity> Parse(string liteKey)
         {
-            Lite<Entity> result;
-            string error = TryParseLite(liteKey, out result);
+            string error = TryParseLite(liteKey, out Lite<Entity> result);
             if (error == null)
                 return result;
             else
@@ -311,7 +310,6 @@ namespace Signum.Entities
 
         public static Lite<T> Parse<T>(string liteKey) where T : class, IEntity
         {
-
             return (Lite<T>)Lite.Parse(liteKey);
         }
 
@@ -329,11 +327,10 @@ namespace Signum.Entities
             if (type == null)
                 return LiteMessage.Type0NotFound.NiceToString().FormatWith(match.Groups["type"].Value);
 
-            PrimaryKey id;
-            if (!PrimaryKey.TryParse(match.Groups["id"].Value, type, out id))
+            if (!PrimaryKey.TryParse(match.Groups["id"].Value, type, out PrimaryKey id))
                 return LiteMessage.IdNotValid.NiceToString();
 
-            string toStr = match.Groups["toStr"].Value; //maybe null
+            string toStr = match.Groups["toStr"].Value.DefaultText(null); //maybe null
 
             result = giNewLite.GetInvoker(type)(id, toStr);
             return null;
@@ -341,8 +338,7 @@ namespace Signum.Entities
 
         public static string TryParse<T>(string liteKey, out Lite<T> lite) where T : class, IEntity
         {
-            Lite<Entity> untypedLite;
-            var result = Lite.TryParseLite(liteKey, out untypedLite);
+            var result = Lite.TryParseLite(liteKey, out Lite<Entity> untypedLite);
             lite = (Lite<T>)untypedLite;
             return result;
         }
@@ -360,7 +356,7 @@ namespace Signum.Entities
         public static Lite<T> ToLite<T>(this T entity)
           where T : class, IEntity
         {
-            if (entity.IdOrNull==null)
+            if (entity.IdOrNull == null)
                 throw new InvalidOperationException("ToLite is not allowed for new entities, use ToLiteFat instead");
 
             return (Lite<T>)giNewLite.GetInvoker(entity.GetType())(entity.Id, entity.ToString());
@@ -431,7 +427,15 @@ namespace Signum.Entities
                 Expression lite = arguments[0];
                 Expression entity = arguments[1];
 
-                return Expression.Equal(lite, Expression.Call(null, miToLazy.MakeGenericMethod(mi.GetGenericArguments()[0]), entity));
+                var evalEntity = ExpressionEvaluator.PartialEval(entity);
+
+                var type = mi.GetGenericArguments()[0];
+
+                var toLite = evalEntity is ConstantExpression c && c.Value == null ?
+                    (Expression)Expression.Constant(null, typeof(Lite<>).MakeGenericType(type)) :
+                    (Expression)Expression.Call(null, miToLazy.MakeGenericMethod(type), entity);
+
+                return Expression.Equal(lite, toLite);
             }
         }
 
@@ -508,16 +512,42 @@ namespace Signum.Entities
             return new LiteImp<T>(id, toStr);
         }
 
-        static ConcurrentDictionary<Type, ConstructorInfo> ciLiteConstructor = new ConcurrentDictionary<Type, ConstructorInfo>();
-
-        public static ConstructorInfo LiteConstructor(Type type)
+        static ConcurrentDictionary<Type, ConstructorInfo> ciLiteConstructorId = new ConcurrentDictionary<Type, ConstructorInfo>();
+        public static ConstructorInfo LiteConstructorId(Type type)
         {
-            return ciLiteConstructor.GetOrAdd(type, t => typeof(LiteImp<>).MakeGenericType(t).GetConstructor(new[] { typeof(PrimaryKey), typeof(string) }));
+            return ciLiteConstructorId.GetOrAdd(type, t => typeof(LiteImp<>).MakeGenericType(t).GetConstructor(new[] { typeof(PrimaryKey), typeof(string) }));
         }
 
         public static NewExpression NewExpression(Type type, Expression id, Expression toString)
         {
-            return Expression.New(Lite.LiteConstructor(type), id.UnNullify(), toString);
+            return Expression.New(Lite.LiteConstructorId(type), id.UnNullify(), toString);
+        }
+
+
+        static Lite<T> ToLiteFatInternal<T>(this T entity, string toStr)
+            where T : class, IEntity
+        {
+            if (entity == null)
+                return null;
+
+            return entity.ToLiteFat(toStr);
+        }
+
+        static MethodInfo miToLiteFatInternal = ReflectionTools.GetMethodInfo(() => ToLiteFatInternal<Entity>(null, null)).GetGenericMethodDefinition();
+        public static Expression ToLiteFatInternalExpression(Expression reference, Expression toString )
+        {
+            return Expression.Call(miToLiteFatInternal.MakeGenericMethod(reference.Type), reference, toString);
+        }
+
+        public static Lite<T> ParsePrimaryKey<T>(string id)
+            where T : Entity
+        {
+            return Lite.Create<T>(PrimaryKey.Parse(id, typeof(T)));
+        }
+
+        public static Lite<Entity> ParsePrimaryKey(Type type, string id)
+        {
+            return Lite.Create(type, PrimaryKey.Parse(id, type));
         }
     }
 

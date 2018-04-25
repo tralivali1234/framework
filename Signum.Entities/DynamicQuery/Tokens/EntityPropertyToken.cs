@@ -37,7 +37,7 @@ namespace Signum.Entities.DynamicQuery
 
         public override Type Type
         {
-            get { return PropertyInfo.PropertyType.BuildLiteNulifyUnwrapPrimaryKey(new[] { this.GetPropertyRoute() }); }
+            get { return PropertyInfo.PropertyType.BuildLiteNullifyUnwrapPrimaryKey(new[] { this.GetPropertyRoute() }); }
         }
 
         public override string ToString()
@@ -76,7 +76,9 @@ namespace Signum.Entities.DynamicQuery
 
         protected override List<QueryToken> SubTokensOverride(SubTokensOptions options)
         {
-            if (PropertyInfo.PropertyType.UnNullify() == typeof(DateTime))
+            var type = this.Type;
+
+            if (type.UnNullify() == typeof(DateTime))
             {
                 PropertyRoute route = this.GetPropertyRoute();
 
@@ -86,14 +88,14 @@ namespace Signum.Entities.DynamicQuery
                         .OfType<DateTimePrecissionValidatorAttribute>().SingleOrDefaultEx();
                     if (att != null)
                     {
-                        return DateTimeProperties(this, att.Precision);
+                        return DateTimeProperties(this, att.Precision).AndHasValue(this);
                     }
                 }
             }
 
-            if (PropertyInfo.PropertyType.UnNullify() == typeof(double) ||
-                PropertyInfo.PropertyType.UnNullify() == typeof(float) ||
-                PropertyInfo.PropertyType.UnNullify() == typeof(decimal))
+            if (type.UnNullify() == typeof(double) ||
+                type.UnNullify() == typeof(float) ||
+                type.UnNullify() == typeof(decimal))
             {
                 PropertyRoute route = this.GetPropertyRoute();
 
@@ -103,16 +105,16 @@ namespace Signum.Entities.DynamicQuery
                         .OfType<DecimalsValidatorAttribute>().SingleOrDefaultEx();
                     if (att != null)
                     {
-                        return StepTokens(this, att.DecimalPlaces);
+                        return StepTokens(this, att.DecimalPlaces).AndHasValue(this);
                     }
 
                     var format = Reflector.FormatString(route);
                     if (format != null)
-                        return StepTokens(this, Reflector.NumDecimals(format));
+                        return StepTokens(this, Reflector.NumDecimals(format)).AndHasValue(this);
                 }
             }
 
-            return SubTokensBase(PropertyInfo.PropertyType, options, GetImplementations());
+            return SubTokensBase(this.Type, options, GetImplementations());
         }
 
         public override Implementations? GetImplementations()
@@ -136,7 +138,7 @@ namespace Signum.Entities.DynamicQuery
 
             string parent = Parent.IsAllowed();
 
-            string route = pr == null ? null : pr.IsAllowed();
+            string route = pr?.IsAllowed();
 
             if (parent.HasText() && route.HasText())
                 return QueryTokenMessage.And.NiceToString().Combine(parent, route);

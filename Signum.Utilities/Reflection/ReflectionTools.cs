@@ -248,67 +248,86 @@ namespace Signum.Utilities.Reflection
 
         public static Func<T, object> CreateGetter<T>(MemberInfo m)
         {
-            if ((m as PropertyInfo)?.Let(a => !a.CanRead) ?? false)
-                return null;
+            using (HeavyProfiler.LogNoStackTrace("CreateGetter"))
+            {
+                if ((m as PropertyInfo)?.Let(a => !a.CanRead) ?? false)
+                    return null;
 
-            ParameterExpression p = Expression.Parameter(typeof(T), "p");
-            Type lambdaType = typeof(Func<,>).MakeGenericType(typeof(T), typeof(object));
-            var exp = Expression.Lambda(lambdaType, Expression.Convert(Expression.MakeMemberAccess(p, m), typeof(object)), p);
-            return (Func<T, object>)exp.Compile();
+                ParameterExpression p = Expression.Parameter(typeof(T), "p");
+                Type lambdaType = typeof(Func<,>).MakeGenericType(typeof(T), typeof(object));
+                var exp = Expression.Lambda(lambdaType, Expression.Convert(Expression.MakeMemberAccess(p, m), typeof(object)), p);
+                return (Func<T, object>)exp.Compile();
+            }
         }
 
         public static Func<object, object> CreateGetterUntyped(Type type, MemberInfo m)
         {
-            if ((m as PropertyInfo)?.Let(a => !a.CanRead) ?? false)
-                return null;
+            using (HeavyProfiler.LogNoStackTrace("CreateGetterUntyped"))
+            {
+                if ((m as PropertyInfo)?.Let(a => !a.CanRead) ?? false)
+                    return null;
 
-            ParameterExpression p = Expression.Parameter(typeof(object), "p");
-            Type lambdaType = typeof(Func<,>).MakeGenericType(typeof(object), typeof(object));
-            var exp = Expression.Lambda(lambdaType, Expression.Convert(Expression.MakeMemberAccess(Expression.Convert(p, type), m), typeof(object)), p);
-            return (Func<object, object>)exp.Compile();
+                ParameterExpression p = Expression.Parameter(typeof(object), "p");
+                Type lambdaType = typeof(Func<,>).MakeGenericType(typeof(object), typeof(object));
+                var exp = Expression.Lambda(lambdaType, Expression.Convert(Expression.MakeMemberAccess(Expression.Convert(p, type), m), typeof(object)), p);
+                return (Func<object, object>)exp.Compile();
+            }
         }
 
         public static Action<T, P> CreateSetter<T, P>(MemberInfo m)
         {
-            if ((m as PropertyInfo)?.Let(a => !a.CanWrite) ?? false)
-                return null;
+            using (HeavyProfiler.LogNoStackTrace("CreateSetter"))
+            {
+                if ((m as PropertyInfo)?.Let(a => !a.CanWrite) ?? false)
+                    return null;
 
-            ParameterExpression t = Expression.Parameter(typeof(T), "t");
-            ParameterExpression p = Expression.Parameter(typeof(P), "p");
-            var exp = Expression.Lambda(typeof(Action<T, P>),
-                Expression.Assign(Expression.MakeMemberAccess(t, m), p), t, p);
-            return (Action<T, P>)exp.Compile();
+                ParameterExpression t = Expression.Parameter(typeof(T), "t");
+                ParameterExpression p = Expression.Parameter(typeof(P), "p");
+                var exp = Expression.Lambda(typeof(Action<T, P>),
+                    Expression.Assign(Expression.MakeMemberAccess(t, m), p), t, p);
+                return (Action<T, P>)exp.Compile();
+            }
         }
 
         public static Action<T, object> CreateSetter<T>(MemberInfo m)
         {
-            if ((m as PropertyInfo)?.Let(a => !a.CanWrite) ?? false)
-                return null;
+            using (HeavyProfiler.LogNoStackTrace("CreateSetter"))
+            {
+                if ((m as PropertyInfo)?.Let(a => !a.CanWrite) ?? false)
+                    return null;
 
-            ParameterExpression t = Expression.Parameter(typeof(T), "t");
-            ParameterExpression p = Expression.Parameter(typeof(object), "p");
-            var exp = Expression.Lambda(typeof(Action<T, object>),
-                Expression.Assign(Expression.MakeMemberAccess(t, m), Expression.Convert(p, m.ReturningType())), t, p);
-            return (Action<T, object>)exp.Compile();
+                ParameterExpression t = Expression.Parameter(typeof(T), "t");
+                ParameterExpression p = Expression.Parameter(typeof(object), "p");
+                var exp = Expression.Lambda(typeof(Action<T, object>),
+                    Expression.Assign(Expression.MakeMemberAccess(t, m), Expression.Convert(p, m.ReturningType())), t, p);
+                return (Action<T, object>)exp.Compile();
+            }
         }
 
         static Module module = ((Expression<Func<int>>)(() => 2)).Compile().Method.Module;
 
         public static Action<object, object> CreateSetterUntyped(Type type, MemberInfo m)
         {
-            if ((m as PropertyInfo)?.Let(a => !a.CanWrite) ?? false)
-                return null;
+            using (HeavyProfiler.LogNoStackTrace("CreateSetterUntyped"))
+            {
+                if ((m as PropertyInfo)?.Let(a => !a.CanWrite) ?? false)
+                    return null;
 
-            ParameterExpression t = Expression.Parameter(typeof(object), "t");
-            ParameterExpression p = Expression.Parameter(typeof(object), "p");
-            var exp = Expression.Lambda(typeof(Action<object, object>),
-                Expression.Assign(Expression.MakeMemberAccess(Expression.Convert(t, type), m), Expression.Convert(p, m.ReturningType())), t, p);
-            return (Action<object, object>)exp.Compile();
+                ParameterExpression t = Expression.Parameter(typeof(object), "t");
+                ParameterExpression p = Expression.Parameter(typeof(object), "p");
+                var exp = Expression.Lambda(typeof(Action<object, object>),
+                    Expression.Assign(Expression.MakeMemberAccess(Expression.Convert(t, type), m), Expression.Convert(p, m.ReturningType())), t, p);
+                return (Action<object, object>)exp.Compile();
+            }
         }
 
         public static bool IsNumber(Type type)
         {
-            switch (Type.GetTypeCode(type.UnNullify()))
+            type = type.UnNullify();
+            if (type.IsEnum)
+                return false;
+
+            switch (Type.GetTypeCode(type))
             {
                 case TypeCode.Single:
                 case TypeCode.Double:
@@ -324,6 +343,22 @@ namespace Signum.Utilities.Reflection
                 case TypeCode.UInt64: return true;
             }
 
+            return false;
+        }
+
+        public static bool IsDecimalNumber(Type type)
+        {
+            type = type.UnNullify();
+            if (type.IsEnum)
+                return false;
+
+            switch (Type.GetTypeCode(type))
+            {
+                case TypeCode.Decimal:
+                case TypeCode.Double:
+                case TypeCode.Single:
+                    return true;
+            }
             return false;
         }
 
@@ -446,8 +481,7 @@ namespace Signum.Utilities.Reflection
 
         public static bool TryParse<T>(string value, out T result)
         {
-            object objResult;
-            if (TryParse(value, typeof(T), CultureInfo.CurrentCulture, out objResult))
+            if (TryParse(value, typeof(T), CultureInfo.CurrentCulture, out object objResult))
             {
                 result = (T)objResult;
                 return true;
@@ -461,8 +495,7 @@ namespace Signum.Utilities.Reflection
 
         public static bool TryParse<T>(string value,  CultureInfo ci, out T result)
         {
-            object objResult;
-            if (TryParse(value, typeof(T), ci, out objResult))
+            if (TryParse(value, typeof(T), ci, out object objResult))
             {
                 result = (T)objResult;
                 return true;
@@ -501,8 +534,7 @@ namespace Signum.Utilities.Reflection
             Type utype = type.UnNullify();
             if (utype.IsEnum)
             {
-                Enum _result;
-                if (EnumExtensions.TryParse(value, utype, true, out _result))
+                if (EnumExtensions.TryParse(value, utype, true, out Enum _result))
                 {
                     result = _result;
                     return true;
@@ -511,8 +543,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(bool))
             {
-                bool _result;
-                if (bool.TryParse(value, out _result))
+                if (bool.TryParse(value, out bool _result))
                 {
                     result = _result;
                     return true;
@@ -521,8 +552,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(char))
             {
-                char _result;
-                if (char.TryParse(value, out _result))
+                if (char.TryParse(value, out char _result))
                 {
                     result = _result;
                     return true;
@@ -531,8 +561,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(SByte))
             {
-                SByte _result;
-                if (SByte.TryParse(value, NumberStyles.Integer, ci, out _result))
+                if (SByte.TryParse(value, NumberStyles.Integer, ci, out sbyte _result))
                 {
                     result = _result;
                     return true;
@@ -541,8 +570,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(byte))
             {
-                byte _result;
-                if (byte.TryParse(value, NumberStyles.Integer, ci, out _result))
+                if (byte.TryParse(value, NumberStyles.Integer, ci, out byte _result))
                 {
                     result = _result;
                     return true;
@@ -551,8 +579,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(Int16))
             {
-                Int16 _result;
-                if (Int16.TryParse(value, NumberStyles.Integer, ci, out _result))
+                if (Int16.TryParse(value, NumberStyles.Integer, ci, out short _result))
                 {
                     result = _result;
                     return true;
@@ -561,8 +588,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(UInt16))
             {
-                UInt16 _result;
-                if (UInt16.TryParse(value, NumberStyles.Integer, ci, out _result))
+                if (UInt16.TryParse(value, NumberStyles.Integer, ci, out ushort _result))
                 {
                     result = _result;
                     return true;
@@ -571,8 +597,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(Int32))
             {
-                Int32 _result;
-                if (Int32.TryParse(value, NumberStyles.Integer, ci, out _result))
+                if (Int32.TryParse(value, NumberStyles.Integer, ci, out int _result))
                 {
                     result = _result;
                     return true;
@@ -581,8 +606,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(UInt32))
             {
-                UInt32 _result;
-                if (UInt32.TryParse(value, NumberStyles.Integer, ci, out _result))
+                if (UInt32.TryParse(value, NumberStyles.Integer, ci, out uint _result))
                 {
                     result = _result;
                     return true;
@@ -591,8 +615,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(Int64))
             {
-                Int64 _result;
-                if (Int64.TryParse(value, NumberStyles.Integer, ci, out _result))
+                if (Int64.TryParse(value, NumberStyles.Integer, ci, out long _result))
                 {
                     result = _result;
                     return true;
@@ -601,8 +624,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(UInt64))
             {
-                UInt64 _result;
-                if (UInt64.TryParse(value, NumberStyles.Integer, ci, out _result))
+                if (UInt64.TryParse(value, NumberStyles.Integer, ci, out ulong _result))
                 {
                     result = _result;
                     return true;
@@ -611,8 +633,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(float))
             {
-                float _result;
-                if (float.TryParse(value, NumberStyles.Number, ci, out _result))
+                if (float.TryParse(value, NumberStyles.Number, ci, out float _result))
                 {
                     result = _result;
                     return true;
@@ -621,8 +642,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(double))
             {
-                double _result;
-                if (double.TryParse(value, NumberStyles.Number, ci, out _result))
+                if (double.TryParse(value, NumberStyles.Number, ci, out double _result))
                 {
                     result = _result;
                     return true;
@@ -631,8 +651,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(decimal))
             {
-                decimal _result;
-                if (decimal.TryParse(value, NumberStyles.Number, ci, out _result))
+                if (decimal.TryParse(value, NumberStyles.Number, ci, out decimal _result))
                 {
                     result = _result;
                     return true;
@@ -641,8 +660,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(DateTime))
             {
-                DateTime _result;
-                if (DateTime.TryParse(value, ci, DateTimeStyles.None, out _result))
+                if (DateTime.TryParse(value, ci, DateTimeStyles.None, out DateTime _result))
                 {
                     result = _result;
                     return true;
@@ -651,8 +669,7 @@ namespace Signum.Utilities.Reflection
             }
             else if (utype == typeof(Guid))
             {
-                Guid _result;
-                if (Guid.TryParse(value, out _result))
+                if (Guid.TryParse(value, out Guid _result))
                 {
                     result = _result;
                     return true;
@@ -738,6 +755,17 @@ namespace Signum.Utilities.Reflection
                     conv = TypeDescriptor.GetConverter(value.GetType());
                     if (conv != null && conv.CanConvertTo(type))
                         return conv.ConvertTo(value, type);
+
+                    if(type != typeof(string) && value is IEnumerable && typeof(IEnumerable).IsAssignableFrom(type))
+                    {
+                        var colType = type.IsInstantiationOf(typeof(IEnumerable<>)) ? typeof(List<>).MakeGenericType(type.GetGenericArguments()) : type;
+                        IList col = (IList)Activator.CreateInstance(colType);
+                        foreach (var item in value as IEnumerable)
+                        {
+                            col.Add(item);
+                        }
+                        return col;
+                    }
 
                     return Convert.ChangeType(value, utype);
                 }

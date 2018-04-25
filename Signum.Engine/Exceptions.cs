@@ -30,7 +30,8 @@ namespace Signum.Engine
 
         static Regex[] regexes = new []
         {   
-            new Regex(@"Cannot insert duplicate key row in object '(?<table>.*)' with unique index '(?<index>.*)'\. The duplicate key value is \((?<value>.*)\)")
+            new Regex(@"Cannot insert duplicate key row in object '(?<table>.*)' with unique index '(?<index>.*)'\. The duplicate key value is \((?<value>.*)\)"),
+            new Regex(@"Eine Zeile mit doppeltem Schlüssel kann in das Objekt ""(?<table>.*)"" mit dem eindeutigen Index ""(?<index>.*)"" nicht eingefügt werden. Der doppelte Schlüsselwert ist \((?<value>.*)\)")
         };
 
         public UniqueKeyException(Exception inner) : base(null, inner) 
@@ -48,9 +49,9 @@ namespace Signum.Engine
 
                     if(Table != null)
                     {
-                        var tuple = cachedLookups.GetOrAdd(Tuple.Create(Table, IndexName), tup=>
+                        var tuple = cachedLookups.GetOrAdd((Table, IndexName), tup=>
                         {
-                            var index = tup.Item1.GeneratAllIndexes().OfType<UniqueIndex>().FirstOrDefault(ix => ix.IndexName == tup.Item2);
+                            var index = tup.table.GeneratAllIndexes().OfType<UniqueIndex>().FirstOrDefault(ix => ix.IndexName == tup.indexName);
 
                             if(index == null)
                                 return null;
@@ -63,13 +64,13 @@ namespace Signum.Engine
                             if (properties.IsEmpty())
                                 return null;
 
-                            return Tuple.Create(index, properties); 
+                            return (index, properties); 
                         });
  
                         if(tuple != null)
                         {
-                            Index = tuple.Item1;
-                            Properties = tuple.Item2;
+                            Index = tuple.Value.index;
+                            Properties = tuple.Value.properties;
                         }
                     }
                 }
@@ -77,7 +78,8 @@ namespace Signum.Engine
         }
 
         static ConcurrentDictionary<string, Table> cachedTables = new ConcurrentDictionary<string, Table>();
-        static ConcurrentDictionary<Tuple<Table, string>, Tuple<UniqueIndex, List<PropertyInfo>>> cachedLookups = new ConcurrentDictionary<Tuple<Table, string>, Tuple<UniqueIndex, List<PropertyInfo>>>();
+        static ConcurrentDictionary<(Table table, string indexName), (UniqueIndex index, List<PropertyInfo> properties)?> cachedLookups = 
+            new ConcurrentDictionary<(Table table, string indexName), (UniqueIndex index, List<PropertyInfo> properties)?>();
 
         public override string Message
         {
@@ -86,7 +88,7 @@ namespace Signum.Engine
                 if (Table == null)
                     return InnerException.Message;
 
-                return EngineMessage.TheresAlreadyA0With1EqualsTo2_G.NiceToString().ForGenderAndNumber(Table == null? null: Table.Type.GetGender()).FormatWith(
+                return EngineMessage.TheresAlreadyA0With1EqualsTo2_G.NiceToString().ForGenderAndNumber(Table?.Type.GetGender()).FormatWith(
                     Table == null ? TableName : Table.Type.NiceName(),
                     Index == null ? IndexName :
                     Properties.IsNullOrEmpty() ? Index.Columns.CommaAnd(c => c.Name) : 
@@ -109,7 +111,7 @@ namespace Signum.Engine
 
         public bool IsInsert { get; private set; }
 
-        static Regex indexRegex = new Regex(@"""FK_(?<table>[^_]+)_(?<field>[^_""]+)""");
+        static Regex indexRegex = new Regex(@"['""]FK_(?<table>[^_]+)_(?<field>[^_""]+)['""]");
 
         static Regex referedTable = new Regex(@"table ""(?<referedTable>.+?)""");
 

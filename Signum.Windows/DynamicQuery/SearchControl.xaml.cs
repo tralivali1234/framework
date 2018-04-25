@@ -338,7 +338,7 @@ namespace Signum.Windows
 
             entityColumn = Description.Columns.SingleOrDefaultEx(a => a.IsEntity);
             if (entityColumn == null)
-                throw new InvalidOperationException("Entity Column not found on {0}".FormatWith(QueryUtils.GetQueryUniqueKey(QueryName)));
+                throw new InvalidOperationException("Entity Column not found on {0}".FormatWith(QueryUtils.GetKey(QueryName)));
         }
 
         ColumnDescription entityColumn;
@@ -466,7 +466,7 @@ namespace Signum.Windows
 
             UpdateVisibility();
 
-            AutomationProperties.SetName(this, QueryUtils.GetQueryUniqueKey(QueryName));
+            AutomationProperties.SetName(this, QueryUtils.GetKey(QueryName));
 
             foreach (var item in FilterOptions)
             {
@@ -569,8 +569,7 @@ namespace Signum.Windows
                     contextMenu.Items.Add(new MenuItem { Header = new TextBlock(new Italic(new Run(SearchMessage.NoActionsFound.NiceToString()))), IsEnabled = false });
             }
 
-            if (ContextMenuOpened != null)
-                ContextMenuOpened(contextMenu);
+            ContextMenuOpened?.Invoke(contextMenu);
         }
 
         public event Action<ContextMenu> ContextMenuOpened;
@@ -715,7 +714,7 @@ namespace Signum.Windows
         {
             var result = GetQueryRequest(updateSimpleFilters);
 
-            string message = CollectionElementToken.MultipliedMessage(result.Multiplications, EntityType);
+            string message = CollectionElementToken.MultipliedMessage(result.Multiplications(), EntityType);
 
             tbMultiplications.Text = message;
             brMultiplications.Visibility = message.HasText() ? Visibility.Visible : Visibility.Collapsed;
@@ -833,13 +832,11 @@ namespace Signum.Windows
                 oldPaginate.ElementsPerPage == newPaginate.ElementsPerPage &&
                 oldPaginate.CurrentPage != newPaginate.CurrentPage)
             {
-                if (FixSize != null)
-                    FixSize(this, new EventArgs());
+                FixSize?.Invoke(this, new EventArgs());
             }
             else
             {
-                if (ClearSize != null)
-                    ClearSize(this, new EventArgs());
+                ClearSize?.Invoke(this, new EventArgs());
             }
 
             if (newValue is Pagination.All)

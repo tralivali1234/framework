@@ -1,7 +1,7 @@
 
 
-using System.ComponentModel;
 using Signum.Utilities;
+using System.ComponentModel;
 
 namespace Signum.Entities
 {
@@ -17,6 +17,9 @@ namespace Signum.Entities
         InUserInterface,
         [Description("Operation {0} ({1}) is not Authorized")]
         Operation01IsNotAuthorized,
+        Confirm,
+        [Description("Please confirm you'd like to delete {0} from the system")]
+        PleaseConfirmYouDLikeToDelete0FromTheSystem,
         [Description("Please confirm you'd like to delete the entity from the system")]
         PleaseConfirmYouDLikeToDeleteTheEntityFromTheSystem,
         [Description("Please confirm you'd like to delete the selected entities from the system")]
@@ -24,17 +27,14 @@ namespace Signum.Entities
 
         [Description("{0} didn't return an entity")]
         TheOperation0DidNotReturnAnEntity,
-        Logs
+        Logs,
+        PreviousOperationLog
     }
 
     public enum SynchronizerMessage
     {
-        [Description("     '{0}' has been renamed in {1}?")]
-        _0HasBeenRenamedIn1,
         [Description("--- END OF SYNC SCRIPT")]
         EndOfSyncScript,
-        [Description("- n: None")]
-        NNone,
         [Description("--- START OF SYNC SCRIPT GENERATED ON {0}")]
         StartOfSyncScriptGeneratedOn0
     }
@@ -93,7 +93,13 @@ Lose changes?")]
 	Continue?")]
         ThereAreChangesContinue,
         ThereAreErrors,
-        Message
+        Message,
+        [Description(@"{0} and Close")]
+        _0AndClose,
+        [Description("New {0}")]
+        New0_G,
+        [Description("{0} {1}")]
+        Type0Id1
     }
 
     public enum EntityControlMessage
@@ -103,18 +109,19 @@ Lose changes?")]
         Detail,
         MoveDown,
         MoveUp,
+        Move,
         Navigate,
         NullValueNotAllowed,
         Remove,
         View,
     }
 
-    [DescriptionOptions(DescriptionOptions.Members)]
+    [DescriptionOptions(DescriptionOptions.Members), InTypeScript(true)]
     public enum BooleanEnum
     {
         [Description("No")]
         False = 0,
-        [Description("Yes")]        
+        [Description("Yes")]
         True = 1,
     }
 
@@ -124,8 +131,11 @@ Lose changes?")]
         Field,
         [Description("Add column")]
         AddColumn,
+        CollectionsCanNotBeAddedAsColumns,
         [Description("Add filter")]
         AddFilter,
+        [Description("Add value")]
+        AddValue,
         [Description("Delete filter")]
         DeleteFilter,
         Filters,
@@ -168,6 +178,7 @@ Lose changes?")]
         ViewSelected,
         Operations,
         NoResultsFound,
+        Explore,
     }
 
     public enum SelectorMessage
@@ -193,7 +204,10 @@ Lose changes?")]
     {
         AConnectionWithTheServerIsNecessaryToContinue,
         [Description("Sesion Expired")]
-        SessionExpired
+        SessionExpired,
+        [Description("A new version has just been deployed! Save changes and {0}")]
+        ANewVersionHasJustBeenDeployedSaveChangesAnd0,
+        Refresh,
     }
 
 
@@ -206,12 +220,14 @@ Lose changes?")]
     {
         Save,
         [Description("View for type {0} is not allowed")]
-        ViewForType0IsNotAllowed
+        ViewForType0IsNotAllowed,
+
+        SaveChangesFirst
     }
 
 
     public enum CalendarMessage
-    {  
+    {
         [Description("Today")]
         Today,
     }
@@ -228,6 +244,8 @@ Lose changes?")]
         openTab,
         [Description("Rename column")]
         renameColumn,
+        [Description("Edit column")]
+        editColumn,
         [Description("Enter the new column name")]
         enterTheNewColumnName,
         [Description("Error")]
@@ -236,6 +254,18 @@ Lose changes?")]
         executed,
         [Description("Hide filters")]
         hideFilters,
+        [Description("Show filters")]
+        showFilters,
+        [Description("Group results")]
+        groupResults,
+        [Description("Ungroup results")]
+        ungroupResults,
+        [Description("Acivate Time Machine")]
+        activateTimeMachine,
+        [Description("Deactivate Time Machine")]
+        deactivateTimeMachine,
+        [Description("Show Records")]
+        showRecords,
         [Description("Loading...")]
         loading,
         [Description("No actions found")]
@@ -246,7 +276,7 @@ Lose changes?")]
         loseCurrentChanges,
         [Description("No elements selected")]
         noElementsSelected,
-        [Description("Seach for results")]
+        [Description("Search for results")]
         searchForResults,
         [Description("Select only one element")]
         selectOnlyOneElement,
@@ -254,6 +284,8 @@ Lose changes?")]
         popupErrors,
         [Description("There are errors in the entity")]
         popupErrorsStop,
+        [Description("Insert column")]
+        insertColumn,
         [Description("Remove column")]
         removeColumn,
         [Description("Move left")]
@@ -268,8 +300,7 @@ Lose changes?")]
         Selected,
         [Description("Select a token")]
         selectToken,
-        [Description("Show filters")]
-        showFilters,
+
         [Description("Find")]
         find,
         [Description("Remove")]
@@ -290,6 +321,10 @@ Lose changes?")]
         ok,
         [Description("Cancel")]
         cancel,
+        [Description("Show Period")]
+        showPeriod,
+        [Description("Show Previous Operation")]
+        showPreviousOperation
     }
 
     public enum QuickLinkMessage

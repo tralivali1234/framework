@@ -17,6 +17,8 @@ using Signum.Utilities.ExpressionTrees;
 using Signum.Utilities.Reflection;
 using System.Collections.Concurrent;
 using System.Threading;
+using static Signum.Engine.Maps.SchemaBuilder;
+using System.Threading.Tasks;
 
 namespace Signum.Engine.DynamicQuery
 {
@@ -33,15 +35,22 @@ namespace Signum.Engine.DynamicQuery
         public Polymorphic<Dictionary<string, ExtensionInfo>> RegisteredExtensions =
             new Polymorphic<Dictionary<string, ExtensionInfo>>(PolymorphicMerger.InheritDictionaryInterfaces, null);
 
-
-        public void RegisterQuery<T>(object queryName, Func<IQueryable<T>> lazyQuery, Implementations? entityImplementations = null)
-        {
-            queries[queryName] = new DynamicQueryBucket(queryName, () => DynamicQuery.Auto(lazyQuery()), entityImplementations ?? DefaultImplementations(typeof(T), queryName));
-        }
+        public Dictionary<PropertyRoute, IExtensionDictionaryInfo> RegisteredExtensionsDictionaries =
+            new Dictionary<PropertyRoute, IExtensionDictionaryInfo>();
 
         public void RegisterQuery<T>(object queryName, Func<DynamicQueryCore<T>> lazyQueryCore, Implementations? entityImplementations = null)
         {
             queries[queryName] = new DynamicQueryBucket(queryName, lazyQueryCore, entityImplementations ?? DefaultImplementations(typeof(T), queryName));
+        }
+
+        public void RegisterQuery<T>(object queryName, Func<IQueryable<T>> lazyQuery, Implementations? entityImplementations = null)
+        {
+            queries[queryName] = new DynamicQueryBucket(queryName, () => DynamicQueryCore.Auto(lazyQuery()), entityImplementations ?? DefaultImplementations(typeof(T), queryName));
+        }
+    
+        public void RegisterQuery(object queryName, DynamicQueryBucket bucket)
+        {
+            queries[queryName] = bucket;
         }
 
         static Implementations DefaultImplementations(Type type, object queryName)
@@ -49,20 +58,22 @@ namespace Signum.Engine.DynamicQuery
             var property = type.GetProperty("Entity", BindingFlags.Instance | BindingFlags.Public);
 
             if (property == null)
-                throw new InvalidOperationException("Entity property not found on query {0}".FormatWith(QueryUtils.GetQueryUniqueKey(queryName)));
+                throw new InvalidOperationException("Entity property not found on query {0}".FormatWith(QueryUtils.GetKey(queryName)));
 
             return Implementations.By(property.PropertyType.CleanType());
         }
 
+      
+
         public DynamicQueryBucket TryGetQuery(object queryName)
         {
-            AssertQueryAllowed(queryName); 
+            AssertQueryAllowed(queryName, false); 
             return queries.TryGetC(queryName);
         }
 
         public DynamicQueryBucket GetQuery(object queryName)
         {
-            AssertQueryAllowed(queryName);
+            AssertQueryAllowed(queryName, false);
             return queries.GetOrThrow(queryName);
         }
 
@@ -71,15 +82,11 @@ namespace Signum.Engine.DynamicQuery
             //AssertQueryAllowed(queryName);
             return queries.GetOrThrow(queryName).EntityImplementations;
         }
-
-
-
-
-
+        
         T Execute<T>(ExecuteType executeType, object queryName, BaseQueryRequest request, Func<DynamicQueryBucket, T> executor)
         {
             using (ExecutionMode.UserInterface())
-            using (HeavyProfiler.Log(executeType.ToString(), () => QueryUtils.GetQueryUniqueKey(queryName)))
+            using (HeavyProfiler.Log(executeType.ToString(), () => QueryUtils.GetKey(queryName)))
             {
                 try
                 {
@@ -98,6 +105,28 @@ namespace Signum.Engine.DynamicQuery
             }
         }
 
+        async Task<T> ExecuteAsync<T>(ExecuteType executeType, object queryName, BaseQueryRequest request, Func<DynamicQueryBucket, Task<T>> executor)
+        {
+            using (ExecutionMode.UserInterface())
+            using (HeavyProfiler.Log(executeType.ToString(), () => QueryUtils.GetKey(queryName)))
+            {
+                try
+                {
+                    var qb = GetQuery(queryName);
+
+                    using (Disposable.Combine(QueryExecuted, f => f(executeType, queryName, request)))
+                    {
+                        return await executor(qb);
+                    }
+                }
+                catch (Exception e)
+                {
+                    e.Data["QueryName"] = queryName;
+                    throw;
+                }
+            }
+        }
+
         public event Func<ExecuteType, object, BaseQueryRequest ,  IDisposable> QueryExecuted;
 
         public enum ExecuteType
@@ -106,42 +135,67 @@ namespace Signum.Engine.DynamicQuery
             ExecuteQueryCount,
             ExecuteGroupQuery,
             ExecuteUniqueEntity,
-            QueryDescription
+            QueryDescription,
+            GetEntities
         }
 
         public ResultTable ExecuteQuery(QueryRequest request)
         {
-            return Execute(ExecuteType.ExecuteQuery, request.QueryName,request, dqb => dqb.Core.Value.ExecuteQuery(request));
+            if (!request.GroupResults)
+                return Execute(ExecuteType.ExecuteGroupQuery, request.QueryName, request, dqb => dqb.Core.Value.ExecuteQueryGroup(request));
+            else
+                return Execute(ExecuteType.ExecuteQuery, request.QueryName, request, dqb => dqb.Core.Value.ExecuteQuery(request));
         }
 
-        public int ExecuteQueryCount(QueryCountRequest request)
+        public Task<ResultTable> ExecuteQueryAsync(QueryRequest request, CancellationToken token)
         {
-            return Execute(ExecuteType.ExecuteQueryCount, request.QueryName, request, dqb => dqb.Core.Value.ExecuteQueryCount(request));
+            if (!request.GroupResults)
+                return ExecuteAsync(ExecuteType.ExecuteQuery, request.QueryName, request, dqb => dqb.Core.Value.ExecuteQueryAsync(request, token));
+            else
+                return ExecuteAsync(ExecuteType.ExecuteGroupQuery, request.QueryName, request, dqb => dqb.Core.Value.ExecuteQueryGroupAsync(request, token));
         }
 
-        public ResultTable ExecuteGroupQuery(QueryGroupRequest request)
+        public object ExecuteQueryCount(QueryValueRequest request)
         {
-            return Execute(ExecuteType.ExecuteGroupQuery, request.QueryName,request, dqb => dqb.Core.Value.ExecuteQueryGroup(request));
+            return Execute(ExecuteType.ExecuteQueryCount, request.QueryName, request, dqb => dqb.Core.Value.ExecuteQueryValue(request));
         }
+
+        public Task<object> ExecuteQueryCountAsync(QueryValueRequest request, CancellationToken token)
+        {
+            return ExecuteAsync(ExecuteType.ExecuteQueryCount, request.QueryName, request, dqb => dqb.Core.Value.ExecuteQueryValueAsync(request, token));
+        }       
 
         public Lite<Entity> ExecuteUniqueEntity(UniqueEntityRequest request)
         {
-            return Execute(ExecuteType.ExecuteUniqueEntity, request.QueryName,request, dqb => dqb.Core.Value.ExecuteUniqueEntity(request));
+            return Execute(ExecuteType.ExecuteUniqueEntity, request.QueryName, request, dqb => dqb.Core.Value.ExecuteUniqueEntity(request));
+        }
+
+        public Task<Lite<Entity>> ExecuteUniqueEntityAsync(UniqueEntityRequest request, CancellationToken token)
+        {
+            return ExecuteAsync(ExecuteType.ExecuteUniqueEntity, request.QueryName,request, dqb => dqb.Core.Value.ExecuteUniqueEntityAsync(request, token));
         }
 
         public QueryDescription QueryDescription(object queryName)
         {
             return Execute(ExecuteType.QueryDescription, queryName, null, dqb => dqb.GetDescription());
         }
-     
-        public event Func<object, bool> AllowQuery;
 
-        public bool QueryAllowed(object queryName)
+        public IQueryable<Lite<Entity>> GetEntities(QueryEntitiesRequest request)
         {
-            if (AllowQuery == null)
-                return true;
+            return Execute(ExecuteType.GetEntities, request.QueryName, null, dqb => dqb.Core.Value.GetEntities(request));
+        }
 
-            return AllowQuery(queryName);
+        public event Func<object, bool, bool> AllowQuery;
+
+        public bool QueryAllowed(object queryName, bool fullScreen)
+        {
+            foreach (var f in AllowQuery.GetInvocationListTyped())
+            {
+                if (!f(queryName, fullScreen))
+                    return false;
+            }
+
+            return true;
         }
 
         public bool QueryDefined(object queryName)
@@ -149,20 +203,20 @@ namespace Signum.Engine.DynamicQuery
             return this.queries.ContainsKey(queryName);
         }
 
-        public bool QueryDefinedAndAllowed(object queryName)
+        public bool QueryDefinedAndAllowed(object queryName, bool fullScreen)
         {
-            return QueryDefined(queryName) && QueryAllowed(queryName);
+            return QueryDefined(queryName) && QueryAllowed(queryName, fullScreen);
         }
 
-        public void AssertQueryAllowed(object queryName)
+        public void AssertQueryAllowed(object queryName, bool fullScreen)
         {
-            if(!QueryAllowed(queryName))
-                throw new UnauthorizedAccessException("Access to query {0} not allowed".FormatWith(queryName));
+            if (!QueryAllowed(queryName, fullScreen))
+                throw new UnauthorizedAccessException("Access to query {0} not allowed {1}".FormatWith(queryName, QueryAllowed(queryName, false) ? " for full screen" : ""));
         }
 
-        public List<object> GetAllowedQueryNames()
+        public List<object> GetAllowedQueryNames(bool fullScreen)
         {
-            return queries.Keys.Where(QueryAllowed).ToList();
+            return queries.Keys.Where(qn => QueryAllowed(qn, fullScreen)).ToList();
         }
 
         public Dictionary<object, DynamicQueryBucket> GetTypeQueries(Type entityType)
@@ -181,6 +235,23 @@ namespace Signum.Engine.DynamicQuery
         {
             QueryToken.EntityExtensions = parent => DynamicQueryManager.Current.GetExtensions(parent);
             ExtensionToken.BuildExtension = (parentType, key, parentExpression) => DynamicQueryManager.Current.BuildExtension(parentType, key, parentExpression);
+            QueryToken.ImplementedByAllSubTokens = GetImplementedByAllSubTokens;
+            QueryToken.IsSystemVersioned = IsSystemVersioned;
+        }
+
+        static bool IsSystemVersioned(Type type)
+        {
+            var table = Schema.Current.Tables.TryGetC(type);
+            return table != null && table.SystemVersioned != null;
+        }
+
+        static List<QueryToken> GetImplementedByAllSubTokens(QueryToken queryToken, Type type, SubTokensOptions options)
+        {
+            var cleanType = type.CleanType();
+            return Schema.Current.Tables.Keys
+                .Where(t => cleanType.IsAssignableFrom(t))
+                .Select(t => (QueryToken)new AsTypeToken(queryToken, t))
+                .ToList();
         }
 
         private Expression BuildExtension(Type parentType, string key, Expression parentExpression)
@@ -195,49 +266,41 @@ namespace Signum.Engine.DynamicQuery
             var parentType = parent.Type.CleanType().UnNullify();
 
             var dic = RegisteredExtensions.TryGetValue(parentType);
+
+            IEnumerable<QueryToken> extensionsTokens = dic == null ? Enumerable.Empty<QueryToken>() :
+                dic.Values.Where(ei => ei.Inherit || ei.SourceType == parentType).Select(v => v.CreateToken(parent));
             
-            if (dic == null)
-                return Enumerable.Empty<QueryToken>();
+            var pr = parentType.IsEntity() && !parentType.IsAbstract ? PropertyRoute.Root(parentType) :
+                parentType.IsEmbeddedEntity() ? parent.GetPropertyRoute() : null;
+            
+            var edi = pr == null ? null: RegisteredExtensionsDictionaries.TryGetC(pr);
 
-            return dic.Values.Where(a => a.Inherit || a.SourceType == parentType).Select(v => v.CreateToken(parent));
+            IEnumerable<QueryToken> dicExtensionsTokens = edi == null ? Enumerable.Empty<QueryToken>() :
+                edi.GetAllTokens(parent);
+
+            return extensionsTokens.Concat(dicExtensionsTokens);
         }
-
-        public ExtensionInfo RegisterExpression<E, S>(Expression<Func<E, S>> lambdaToMethodOrProperty)
+        
+        public ExtensionInfo RegisterExpression<E, S>(Expression<Func<E, S>> lambdaToMethodOrProperty, Func<string> niceName = null)
         {
-            if (lambdaToMethodOrProperty.Body.NodeType == ExpressionType.Call)
+            using (HeavyProfiler.LogNoStackTrace("RegisterExpression"))
             {
-                var mi = ReflectionTools.GetMethodInfo(lambdaToMethodOrProperty);
+                if (lambdaToMethodOrProperty.Body.NodeType == ExpressionType.Call)
+                {
+                    var mi = ReflectionTools.GetMethodInfo(lambdaToMethodOrProperty);
 
-                AssertExtensionMethod(mi);
+                    AssertExtensionMethod(mi);
 
-                return RegisterExpression<E, S>(lambdaToMethodOrProperty, () => mi.Name.NiceName(), mi.Name);
+                    return RegisterExpression<E, S>(lambdaToMethodOrProperty, niceName ?? (() => mi.Name.NiceName()), mi.Name);
+                }
+                else if (lambdaToMethodOrProperty.Body.NodeType == ExpressionType.MemberAccess)
+                {
+                    var pi = ReflectionTools.GetPropertyInfo(lambdaToMethodOrProperty);
+
+                    return RegisterExpression<E, S>(lambdaToMethodOrProperty, niceName ?? (() => pi.NiceName()), pi.Name);
+                }
+                else throw new InvalidOperationException("argument 'lambdaToMethodOrProperty' should be a simple lambda calling a method or property: {0}".FormatWith(lambdaToMethodOrProperty.ToString()));
             }
-            else if (lambdaToMethodOrProperty.Body.NodeType == ExpressionType.MemberAccess)
-            {
-                var pi = ReflectionTools.GetPropertyInfo(lambdaToMethodOrProperty);
-
-                return RegisterExpression<E, S>(lambdaToMethodOrProperty, () => pi.NiceName(), pi.Name);
-            }
-            else throw new InvalidOperationException("argument 'lambdaToMethodOrProperty' should be a simple lambda calling a method or property: {0}".FormatWith(lambdaToMethodOrProperty.ToString()));
-        }
-
-        public ExtensionInfo RegisterExpression<E, S>(Expression<Func<E, S>> lambdaToMethodOrProperty, Func<string> niceName)
-        {
-            if (lambdaToMethodOrProperty.Body.NodeType == ExpressionType.Call)
-            {
-                var mi = ReflectionTools.GetMethodInfo(lambdaToMethodOrProperty);
-
-                AssertExtensionMethod(mi);
-
-                return RegisterExpression<E, S>(lambdaToMethodOrProperty, niceName, mi.Name);
-            }
-            else if (lambdaToMethodOrProperty.Body.NodeType == ExpressionType.MemberAccess)
-            {
-                var pi = ReflectionTools.GetPropertyInfo(lambdaToMethodOrProperty);
-
-                return RegisterExpression<E, S>(lambdaToMethodOrProperty, niceName, pi.Name);
-            }
-            else throw new InvalidOperationException("argument 'lambdaToMethodOrProperty' should be a simple lambda calling a method or property: {0}".FormatWith(lambdaToMethodOrProperty.ToString()));
         }
 
         private static void AssertExtensionMethod(MethodInfo mi)
@@ -248,54 +311,203 @@ namespace Signum.Engine.DynamicQuery
                 throw new InvalidOperationException("The parameter 'lambdaToMethod' should be an expression calling a expression method");
         }
 
-        public ExtensionInfo RegisterExpression<E, S>(Expression<Func<E, S>> extensionLambda, Func<string> niceName, string key) 
+        public ExtensionInfo RegisterExpression<E, S>(Expression<Func<E, S>> extensionLambda, Func<string> niceName, string key, bool replace = false) 
         {
             var extension = new ExtensionInfo(typeof(E), extensionLambda, typeof(S), key, niceName);
 
             return RegisterExpression(extension);
         }
 
-        public ExtensionInfo RegisterExpression(ExtensionInfo extension)
+        public ExtensionInfo RegisterExpression(ExtensionInfo extension, bool replace = false)
         {
-            RegisteredExtensions.GetOrAddDefinition(extension.SourceType)[extension.Key] = extension;
+            var dic = RegisteredExtensions.GetOrAddDefinition(extension.SourceType);
+
+            if (replace)
+                dic[extension.Key] = extension;
+            else
+                dic.Add(extension.Key, extension);
 
             RegisteredExtensions.ClearCache();
 
             return extension;
         }
 
-        public object[] BatchExecute(BaseQueryRequest[] requests)
+        
+
+        public ExtensionDictionaryInfo<T, KVP, K, V> RegisterExpressionDictionary<T, KVP, K, V>(
+            Expression<Func<T, IEnumerable<KVP>>> collectionSelector,
+            Expression<Func<KVP, K>> keySelector,
+            Expression<Func<KVP, V>> valueSelector,
+            Expression<Func<T, EmbeddedEntity>> forEmbedded = null,
+            ResetLazy<HashSet<K>> allKeys = null)
+            where T : Entity
         {
-            return requests.Select(r =>
+            var mei = new ExtensionDictionaryInfo<T, KVP, K, V>
             {
-                if (r is QueryCountRequest)
-                    return ExecuteQueryCount((QueryCountRequest)r);
+                CollectionSelector = collectionSelector,
+                KeySelector = keySelector,
+                ValueSelector = valueSelector,
+
+                AllKeys = allKeys ?? GetAllKeysLazy<T, KVP, K>(collectionSelector, keySelector)
+            };
+
+            var route = forEmbedded == null ? 
+                PropertyRoute.Root(typeof(T)) : 
+                PropertyRoute.Construct(forEmbedded);
+
+            RegisteredExtensionsDictionaries.Add(route, mei);
+
+            return mei;
+        }
+
+        private ResetLazy<HashSet<K>> GetAllKeysLazy<T, KVP, K>(Expression<Func<T, IEnumerable<KVP>>> collectionSelector, Expression<Func<KVP, K>> keySelector)
+            where T : Entity
+        {
+            if (typeof(K).IsEnum)
+                return new ResetLazy<HashSet<K>>(() => EnumExtensions.GetValues<K>().ToHashSet());
+
+            if (typeof(K).IsLite())
+                return GlobalLazy.WithoutInvalidations(() => Database.RetrieveAllLite(typeof(K).CleanType()).Cast<K>().ToHashSet());
+
+            if (collectionSelector.Body.Type.IsMList())
+            {
+                var lambda = Expression.Lambda<Func<T, MList<KVP>>>(collectionSelector.Body, collectionSelector.Parameters);
+
+                return GlobalLazy.WithoutInvalidations(() => Database.MListQuery(lambda).Select(kvp => keySelector.Evaluate(kvp.Element)).Distinct().ToHashSet());
+            }
+            else
+            {
+                return GlobalLazy.WithoutInvalidations(() => Database.Query<T>().SelectMany(collectionSelector).Select(keySelector).Distinct().ToHashSet());
+            }
+        }
+
+        public Task<object[]> BatchExecute(BaseQueryRequest[] requests, CancellationToken token)
+        {
+            return Task.WhenAll<object>(requests.Select<BaseQueryRequest, Task<object>>(r =>
+            {
+                if (r is QueryValueRequest)
+                    return ExecuteQueryCountAsync((QueryValueRequest)r, token);
 
                 if (r is QueryRequest)
-                    return ExecuteQuery((QueryRequest)r);
+                    return ExecuteQueryAsync((QueryRequest)r, token).ContinueWith(a => (object)a.Result);
 
                 if (r is UniqueEntityRequest)
-                    return ExecuteUniqueEntity((UniqueEntityRequest)r);
-
-                if (r is QueryGroupRequest)
-                    return ExecuteGroupQuery((QueryGroupRequest)r);
-
-                return (object)null;
-            }).ToArray(); 
+                    return ExecuteUniqueEntityAsync((UniqueEntityRequest)r, token).ContinueWith(a => (object)a.Result);
+                
+                throw new InvalidOperationException("Unexpected QueryRequest type"); ;
+            })); 
         }
     }
 
-    public class ExtensionInfo
+
+    public static class DynamicQueryFluentInclude
     {
-        public class ExtensionRouteInfo
+        public static FluentInclude<T> WithQuery<T>(this FluentInclude<T> fi, DynamicQueryManager dqm, Func<Expression<Func<T, object>>> lazyQuerySelector)
+            where T : Entity
         {
-            public string Format;
-            public string Unit;
-            public Implementations? Implementations;
-            public Func<string> IsAllowed;
-            public PropertyRoute PropertyRoute;
+            dqm.RegisterQuery(typeof(T), new DynamicQueryBucket(typeof(T), () => DynamicQueryCore.FromSelectorUntyped(lazyQuerySelector()), Implementations.By(typeof(T))));
+            return fi;
         }
 
+        public static FluentInclude<T> WithQuery<T, Q>(this FluentInclude<T> fi, DynamicQueryManager dqm, Func<DynamicQueryCore<Q>> lazyGetQuery)
+             where T : Entity
+        {
+            dqm.RegisterQuery<Q>(typeof(T), () => lazyGetQuery());
+            return fi;
+        }
+
+        /// <summary>
+        /// Uses NicePluralName as niceName
+        /// </summary>
+        public static FluentInclude<T> WithExpressionFrom<T, F>(this FluentInclude<T> fi, DynamicQueryManager dqm, Expression<Func<F, IQueryable<T>>> lambdaToMethodOrProperty)
+            where T : Entity
+        {
+            dqm.RegisterExpression(lambdaToMethodOrProperty, () => typeof(T).NicePluralName());
+            return fi;
+        }
+
+        public static FluentInclude<T> WithExpressionFrom<T, F>(this FluentInclude<T> fi, DynamicQueryManager dqm, Expression<Func<F, IQueryable<T>>> lambdaToMethodOrProperty, Func<string> niceName)
+            where T : Entity
+        {
+            dqm.RegisterExpression(lambdaToMethodOrProperty, niceName);
+            return fi;
+        }
+
+        /// <summary>
+        /// Uses NicePluralName as niceName
+        /// </summary>
+        public static FluentInclude<T> WithExpressionFrom<T, F>(this FluentInclude<T> fi, DynamicQueryManager dqm, Expression<Func<F, T>> lambdaToMethodOrProperty)
+            where T : Entity
+        {
+            dqm.RegisterExpression(lambdaToMethodOrProperty, () => typeof(T).NicePluralName());
+            return fi;
+        }
+
+        public static FluentInclude<T> WithExpressionFrom<T, F>(this FluentInclude<T> fi, DynamicQueryManager dqm, Expression<Func<F, T>> lambdaToMethodOrProperty, Func<string> niceName)
+            where T : Entity
+        {
+            dqm.RegisterExpression(lambdaToMethodOrProperty, niceName);
+            return fi;
+        }
+    }
+
+    public interface IExtensionDictionaryInfo
+    {
+        IEnumerable<QueryToken> GetAllTokens(QueryToken parent);
+    }
+    
+    public class ExtensionDictionaryInfo<T, KVP, K, V> : IExtensionDictionaryInfo
+    {
+        public ResetLazy<HashSet<K>> AllKeys;
+
+        public Expression<Func<T, IEnumerable<KVP>>> CollectionSelector { get; set; }
+
+        public Expression<Func<KVP, K>> KeySelector { get; set; }
+
+        public Expression<Func<KVP, V>> ValueSelector { get; set; }
+
+        ConcurrentDictionary<QueryToken, ExtensionRouteInfo> metas = new ConcurrentDictionary<QueryToken, ExtensionRouteInfo>();
+        
+        public IEnumerable<QueryToken> GetAllTokens(QueryToken parent)
+        {
+            var info = metas.GetOrAdd(parent, qt =>
+            {
+                Expression<Func<T, V>> lambda = t => ValueSelector.Evaluate(CollectionSelector.Evaluate(t).SingleOrDefaultEx());
+
+                Expression e = MetadataVisitor.JustVisit(lambda, MetaExpression.FromToken(qt, typeof(T)));
+
+                MetaExpression me = e as MetaExpression;
+                
+                var result = new ExtensionRouteInfo();
+
+                if (me?.Meta is CleanMeta cm && cm.PropertyRoutes.Any())
+                {
+                    var cleanType = me.Type.CleanType();
+
+                    result.PropertyRoute = cm.PropertyRoutes.Only();
+                    result.Implementations = me.Meta.Implementations;
+                    result.Format = ColumnDescriptionFactory.GetFormat(cm.PropertyRoutes);
+                    result.Unit = ColumnDescriptionFactory.GetUnit(cm.PropertyRoutes);
+                }
+                
+                return result;
+            });
+
+            return AllKeys.Value.Select(key => new ExtensionDictionaryToken<T, K, V>(parent,
+                key: key,
+                unit: info.Unit,
+                format: info.Format,
+                implementations: info.Implementations,
+                propertyRoute: info.PropertyRoute)
+            {
+                Lambda = t => ValueSelector.Evaluate(CollectionSelector.Evaluate(t).SingleOrDefaultEx(kvp => KeySelector.Evaluate(kvp).Equals(key))),
+            });
+        }
+    }
+
+
+    public class ExtensionInfo
+    {
         ConcurrentDictionary<QueryToken, ExtensionRouteInfo> metas = new ConcurrentDictionary<QueryToken, ExtensionRouteInfo>();
 
 
@@ -341,17 +553,15 @@ namespace Signum.Engine.DynamicQuery
                         mpe = MetadataVisitor.AsProjection(e);
 
                     me = mpe == null ? null : mpe.Projector as MetaExpression;
-
-                }else 
+                }
+                else 
                 {
                     me = e as MetaExpression;
                 }
      
-                CleanMeta cm = me == null ? null : me.Meta as CleanMeta;
-
                 var result = new ExtensionRouteInfo();
 
-                if (cm != null && cm.PropertyRoutes.Any())
+                if (me?.Meta is CleanMeta cm && cm.PropertyRoutes.Any())
                 {
                     var cleanType = me.Type.CleanType();
 
@@ -386,5 +596,14 @@ namespace Signum.Engine.DynamicQuery
                 DisplayName = NiceName()
             }; 
         }
+    }
+
+    public class ExtensionRouteInfo
+    {
+        public string Format;
+        public string Unit;
+        public Implementations? Implementations;
+        public Func<string> IsAllowed;
+        public PropertyRoute PropertyRoute;
     }
 }

@@ -16,6 +16,7 @@ using Signum.Engine.Operations;
 using Signum.Engine.Basics;
 using System.ServiceModel.Channels;
 using Signum.Entities.Reflection;
+using System.Threading;
 
 namespace Signum.Services
 {
@@ -132,7 +133,7 @@ namespace Signum.Services
         public virtual Dictionary<Type, HashSet<Type>> FindAllMixins()
         {
             return Return(MethodInfo.GetCurrentMethod(), null,
-             () => MixinDeclarations.Declarations);
+             () => MixinDeclarations.Declarations.ToDictionary());
         }
 
         public virtual bool Exists(Type type, PrimaryKey id)
@@ -171,7 +172,7 @@ namespace Signum.Services
                  () => Symbol.GetSymbolIds(type));
         }
 
-        public Dictionary<string, Tuple<PrimaryKey, string>> GetSemiSymbolIdsAndNames(Type type)
+        public Dictionary<string, (PrimaryKey id, string name)> GetSemiSymbolIdsAndNames(Type type)
         {
             return Return(MethodInfo.GetCurrentMethod(),
                  () => SemiSymbol.GetSemiSymbolIdsAndNames(type));
@@ -191,22 +192,16 @@ namespace Signum.Services
                 () => DynamicQueryManager.Current.QueryDescription(queryName));
         }
 
-        public virtual ResultTable ExecuteQuery(QueryRequest request)
+        public ResultTable ExecuteQuery(QueryRequest request)
         {
             return Return(MethodInfo.GetCurrentMethod(), request.QueryName.ToString(),
                 () => DynamicQueryManager.Current.ExecuteQuery(request));
         }
-
-        public ResultTable ExecuteQueryGroup(QueryGroupRequest request)
+        
+        public virtual int ExecuteQueryCount(QueryValueRequest request)
         {
             return Return(MethodInfo.GetCurrentMethod(), request.QueryName.ToString(),
-                () => DynamicQueryManager.Current.ExecuteGroupQuery(request));
-        }
-
-        public virtual int ExecuteQueryCount(QueryCountRequest request)
-        {
-            return Return(MethodInfo.GetCurrentMethod(), request.QueryName.ToString(),
-                () => DynamicQueryManager.Current.ExecuteQueryCount(request));
+                () => (int)DynamicQueryManager.Current.ExecuteQueryCount(request));
         }
 
         public virtual Lite<Entity> ExecuteUniqueEntity(UniqueEntityRequest request)
@@ -230,7 +225,7 @@ namespace Signum.Services
         public virtual object[] BatchExecute(BaseQueryRequest[] requests)
         {
             return Return(MethodInfo.GetCurrentMethod(), requests.ToString("; "),
-                () => DynamicQueryManager.Current.BatchExecute(requests));
+                () => DynamicQueryManager.Current.BatchExecute(requests, CancellationToken.None).Result);
         }
         #endregion
 
@@ -269,12 +264,6 @@ namespace Signum.Services
         {
             return Return(MethodInfo.GetCurrentMethod(),
                 () => OperationLogic.HasConstructOperations(entityType));
-        }
-
-        public HashSet<Type> GetSaveProtectedTypes()
-        {
-            return Return(MethodInfo.GetCurrentMethod(),
-                () => OperationLogic.GetSaveProtectedTypes());
         }
 
         public Entity ExecuteOperation(IEntity entity, OperationSymbol operationSymbol, params object[] args)
