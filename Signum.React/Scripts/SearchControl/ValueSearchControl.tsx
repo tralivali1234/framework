@@ -5,7 +5,7 @@ import { Dic, DomUtils, classes } from '../Globals'
 import * as Finder from '../Finder'
 import {
     ResultTable, ResultRow, FindOptions, FindOptionsParsed, FilterOption, QueryDescription, ColumnOption, ColumnOptionsMode, ColumnDescription,
-    toQueryToken, Pagination, PaginationMode, OrderType, OrderOption, SubTokensOptions, filterOperations, QueryToken, QueryCountRequest, QueryRequest
+    toQueryToken, Pagination, PaginationMode, OrderType, OrderOption, SubTokensOptions, filterOperations, QueryToken, QueryValueRequest, QueryRequest
 } from '../FindOptions'
 import { SearchMessage, JavascriptMessage, Lite, liteKey, is, Entity, getToString, EmbeddedEntity } from '../Signum.Entities'
 import { getTypeInfos, IsByAll, getQueryKey, TypeInfo, EntityData, getQueryNiceName, toNumbroFormat, toMomentFormat, getEnumInfo } from '../Reflection'
@@ -14,6 +14,8 @@ import { StyleContext } from '../Typecontext'
 import { LineBase, LineBaseProps } from '../Lines/LineBase'
 import { AbortableRequest } from "../Services";
 import { SearchControlProps } from "./SearchControl";
+import { BsColor } from '../Components';
+import { toFilterRequests } from '../Finder';
 
 
 
@@ -22,6 +24,7 @@ export interface ValueSearchControlProps extends React.Props<ValueSearchControl>
     findOptions: FindOptions;
     isLink?: boolean;
     isBadge?: boolean | "MoreThanZero";
+    badgeColor?: BsColor;
     formControlClass?: string;
     avoidAutoRefresh?: boolean;
     onValueChange?: (value: any) => void;
@@ -53,11 +56,11 @@ export default class ValueSearchControl extends React.Component<ValueSearchContr
         this.state = { value: props.initialValue };
     }
 
-    getQueryRequest(fo: FindOptionsParsed): QueryCountRequest {
+    getQueryRequest(fo: FindOptionsParsed): QueryValueRequest {
 
         return {
             queryKey: fo.queryKey,
-            filters: fo.filterOptions.map(fo => ({ token: fo.token!.fullKey, operation: fo.operation!, value: fo.value })),
+            filters: toFilterRequests(fo.filterOptions),
             valueToken: this.props.valueToken
         };
     }
@@ -103,8 +106,8 @@ export default class ValueSearchControl extends React.Component<ValueSearchContr
         this.abortableQuery.abort();
     }
 
-    abortableQuery = new AbortableRequest<{ request: QueryCountRequest; avoidNotify: boolean | undefined }, number>(
-        (abortController, a) => Finder.API.queryCount(a.request, a.avoidNotify, abortController));
+    abortableQuery = new AbortableRequest<{ request: QueryValueRequest; avoidNotify: boolean | undefined }, number>(
+        (abortController, a) => Finder.API.queryValue(a.request, a.avoidNotify, abortController));
 
     refreshValue(props?: ValueSearchControlProps) {
         if (!props)
@@ -157,7 +160,7 @@ export default class ValueSearchControl extends React.Component<ValueSearchContr
             p.valueToken == undefined && this.state.value > 0 ? "count-with-results" : "count-no-results",
             p.formControlClass,
             p.formControlClass && this.isNumeric() && "numeric",
-            p.isBadge == true || (p.isBadge == "MoreThanZero" && this.state.value > 0) ? "badge badge-pill badge-secondary" : "",
+            p.isBadge == true || (p.isBadge == "MoreThanZero" && this.state.value > 0) ? "badge badge-pill badge-" + (this.props.badgeColor || "secondary") : "",
             p.customClass
         );
 

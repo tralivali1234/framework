@@ -6,7 +6,6 @@ import * as numbro from 'numbro'
 import { Dic, addClass, classes } from '../Globals'
 import * as DateTimePicker from 'react-widgets/lib/DateTimePicker'
 import 'react-widgets/dist/css/react-widgets.css';
-import { TypeContext, StyleContext, StyleOptions, FormGroupStyle } from '../TypeContext'
 import { PropertyRouteType, MemberInfo, getTypeInfo, TypeInfo, TypeReference, toMomentFormat, toMomentDurationFormat, toNumbroFormat, isTypeEnum } from '../Reflection'
 import { LineBase, LineBaseProps } from '../Lines/LineBase'
 import { FormGroup } from '../Lines/FormGroup'
@@ -208,6 +207,13 @@ ValueLine.renderers["ComboBox"] = (vl) => {
     return internalComboBox(vl);
 };
 
+function getPlaceholder(vl: ValueLine): string | undefined {
+
+    const s = vl.state;
+    return s.ctx.placeholderLabels ? asString(s.labelText) :
+        s.valueHtmlAttributes && s.valueHtmlAttributes!.placeholder;
+}
+
 function getOptionsItems(vl: ValueLine): OptionItem[]{
 
     var ti = getTypeInfo(vl.state.type!.name);
@@ -331,7 +337,7 @@ ValueLine.renderers["TextBox" as ValueLineType] = (vl) => {
                     onBlur={handleBlur}
                     onChange={isIE11() ? undefined : handleTextOnChange} //https://github.com/facebook/react/issues/7211
                     onInput={isIE11() ? handleTextOnChange : undefined}
-                    placeholder={s.ctx.placeholderLabels ? asString(s.labelText) : undefined}
+                    placeholder={getPlaceholder(vl)}
                     ref={elment => vl.inputElement = elment} />)
             }
         </FormGroup>
@@ -385,7 +391,7 @@ ValueLine.renderers["TextArea" as ValueLineType] = (vl) => {
                 onChange={isIE11() ? undefined : handleTextOnChange} //https://github.com/facebook/react/issues/7211 && https://github.com/omcljs/om/issues/704
                 onInput={isIE11() ? handleTextOnChange : undefined}
                 onBlur={handleBlur}
-                placeholder={s.ctx.placeholderLabels ? asString(s.labelText) : undefined}
+                placeholder={getPlaceholder(vl)}
                 ref={elment => vl.inputElement = elment} />
         </FormGroup>
     );
@@ -419,7 +425,7 @@ function numericTextBox(vl: ValueLine, validateKey: React.KeyboardEventHandler<a
     };
 
     const htmlAttributes = {
-        placeholder: s.ctx.placeholderLabels ? asString(s.labelText) : undefined,
+        placeholder: getPlaceholder(vl),
         ...vl.props.valueHtmlAttributes
     } as React.AllHTMLAttributes<any>;
 
@@ -440,7 +446,7 @@ function numericTextBox(vl: ValueLine, validateKey: React.KeyboardEventHandler<a
 }
 
 export interface NumericTextBoxProps {
-    value: number;
+    value: number | null;
     onChange: (newValue: number | null) => void;
     validateKey: React.KeyboardEventHandler<any>;
     format?: string;
@@ -473,6 +479,9 @@ export class NumericTextBox extends React.Component<NumericTextBoxProps, { text?
         const input = e.currentTarget as HTMLInputElement;
 
         let value = ValueLine.autoFixString(input.value, false);
+
+        if (numbro.languageData().delimiters.decimal == ',' && !value.contains(",") && value.trim().length > 0) //Numbro transforms 1.000 to 1,0 in spanish or german 
+            value = value + ",00";
 
         if (this.props.format && this.props.format.endsWith("%"))
         {
@@ -526,7 +535,7 @@ ValueLine.renderers["DateTime" as ValueLineType] = (vl) => {
         <FormGroup ctx={s.ctx} labelText={s.labelText} helpText={s.helpText} htmlAttributes={{ ...vl.baseHtmlAttributes(), ...s.formGroupHtmlAttributes }} labelHtmlAttributes={s.labelHtmlAttributes}>
             {ValueLine.withItemGroup(vl,
                 <div className={s.ctx.rwWidgetClass}>
-                <DateTimePicker value={m && m.toDate()} onChange={handleDatePickerOnChange}
+                    <DateTimePicker value={m && m.toDate()} onChange={handleDatePickerOnChange}
                         format={momentFormat} time={showTime} defaultCurrentDate={currentDate.toDate()} />
                 </div>
             )}
@@ -565,7 +574,7 @@ function durationTextBox(vl: ValueLine, validateKey: React.KeyboardEventHandler<
     };
 
     const htmlAttributes = {
-        placeholder: s.ctx.placeholderLabels ? asString(s.labelText) : undefined,
+        placeholder: getPlaceholder(vl),
         ...vl.props.valueHtmlAttributes
     } as React.AllHTMLAttributes<any>;
 

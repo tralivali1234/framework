@@ -3,7 +3,7 @@ import { Dic, DomUtils, classes } from '../Globals'
 import * as Finder from '../Finder'
 import {
     ResultTable, ResultRow, FindOptions, FindOptionsParsed, FilterOption, QueryDescription, ColumnOption, ColumnOptionsMode, ColumnDescription,
-    toQueryToken, Pagination, PaginationMode, OrderType, OrderOption, SubTokensOptions, filterOperations, QueryToken, QueryCountRequest, QueryRequest, QueryTokenType
+    toQueryToken, Pagination, PaginationMode, OrderType, OrderOption, SubTokensOptions, filterOperations, QueryToken, QueryValueRequest, QueryRequest, QueryTokenType
 } from '../FindOptions'
 import { SearchMessage, JavascriptMessage, Lite, liteKey, is, Entity, isEntity, EntityControlMessage, isLite } from '../Signum.Entities'
 import { getTypeInfos, IsByAll, getQueryKey, TypeInfo, EntityData, getQueryNiceName  } from '../Reflection'
@@ -14,6 +14,8 @@ import { LineBase, LineBaseProps, runTasks } from '../Lines/LineBase'
 import { FormGroup } from '../Lines/FormGroup'
 import { FormControlReadonly } from '../Lines/FormControlReadonly'
 import { SearchControlProps } from "./SearchControl";
+import { BsColor } from '../Components';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
 export interface ValueSearchControlLineProps extends React.Props<ValueSearchControlLine> {
     ctx: StyleContext;
@@ -25,6 +27,7 @@ export interface ValueSearchControlLineProps extends React.Props<ValueSearchCont
     initialValue?: any;
     isLink?: boolean;
     isBadge?: boolean | "MoreThanZero";
+    badgeColor?: BsColor;
     isFormControl?: boolean;
     findButton?: boolean;
     onViewEntity?: (entity: Lite<Entity>) => void;
@@ -32,7 +35,7 @@ export interface ValueSearchControlLineProps extends React.Props<ValueSearchCont
     viewEntityButton?: boolean;
     avoidAutoRefresh?: boolean;
     refreshKey?: string | number;
-    extraButtons?: (valueSearchControl: ValueSearchControl) => React.ReactNode | undefined;
+    extraButtons?: (valueSearchControl: ValueSearchControl) => React.ReactNode;
     searchControlProps?: Partial<SearchControlProps>;
 }
 
@@ -59,7 +62,7 @@ export default class ValueSearchControlLine extends React.Component<ValueSearchC
         if (isEntity(ctx.value))
             return {
                 queryName: ctx.value.Type,
-                parentColumn: "Entity",
+                parentToken: "Entity",
                 parentValue: ctx.value
             };
 
@@ -99,18 +102,18 @@ export default class ValueSearchControlLine extends React.Component<ValueSearchC
 
         let value = this.valueSearchControl && this.valueSearchControl.state.value;
         let find = value != undefined && coallesce(this.props.findButton, isQuery) &&
-            <a href="#" className={classes("sf-line-button", "sf-find", isFormControl ? "btn btn-light" : undefined)}
+            <a href="#" className={classes("sf-line-button", "sf-find", isFormControl ? "btn input-group-text" : undefined)}
                 onClick={this.valueSearchControl!.handleClick}
                 title={EntityControlMessage.Find.niceToString()}>
-                <span className="fa fa-search" />
+                <FontAwesomeIcon icon="search" />
             </a>;
 
 
         let view = value != undefined && coallesce(this.props.viewEntityButton, isLite(value) && Navigator.isViewable(value.EntityType)) &&
-            <a href="#" className={classes("sf-line-button", "sf-view", isFormControl ? "btn btn-light" : undefined)}
+            <a href="#" className={classes("sf-line-button", "sf-view", isFormControl ? "btn input-group-text" : undefined)}
                 onClick={this.handleViewEntityClick}
                 title={EntityControlMessage.View.niceToString()}>
-                <span className="fa fa-arrow-right" />
+                <FontAwesomeIcon icon="arrow-right" />
             </a>
 
         let extra = this.valueSearchControl && this.props.extraButtons && this.props.extraButtons(this.valueSearchControl);
@@ -120,12 +123,13 @@ export default class ValueSearchControlLine extends React.Component<ValueSearchC
                 labelText={this.props.labelText || (token ? token.niceName : getQueryNiceName(fo.queryName))}
                 labelHtmlAttributes={this.props.labelHtmlAttributes}
                 htmlAttributes={this.props.formGroupHtmlAttributes}>
-                <div className={isFormControl ? ((unit || view || extra || find) ? "input-group" : undefined) : this.props.ctx.formControlPlainTextClass}>
+                <div className={isFormControl ? ((unit || view || extra || find) ? this.props.ctx.inputGroupClass : undefined) : this.props.ctx.formControlPlainTextClass}>
                     <ValueSearchControl
                         ref={this.handleValueSearchControlLoaded}
                         findOptions={fo}
                         initialValue={this.props.initialValue}
                         isBadge={isBadge}
+                        badgeColor={this.props.badgeColor}
                         isLink={this.props.isLink}
                         formControlClass={isFormControl ? this.props.ctx.formControlClass : undefined}
                         valueToken={this.props.valueToken}

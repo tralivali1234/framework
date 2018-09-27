@@ -1,4 +1,5 @@
 ﻿import * as React from 'react'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { RouteComponentProps } from 'react-router'
 import { Dic } from '../Globals'
 import * as Finder from '../Finder'
@@ -54,7 +55,7 @@ export default class SearchPage extends React.Component<SearchPageProps, SearchP
 
             var maxHeight = (window.innerHeight - (marginTop + SearchPage.marginDown));
 
-            containerDiv.style.maxHeight = maxHeight < SearchPage.minHeight ? null : (maxHeight + "px");
+            containerDiv.style.maxHeight = Math.max(maxHeight, SearchPage.minHeight) + "px";
         }
     }
 
@@ -90,7 +91,7 @@ export default class SearchPage extends React.Component<SearchPageProps, SearchP
             return (
                 <div id="divSearchPage">
                     <h3>
-                        <span className="display-6">{getQueryNiceName(fo.queryName)}</span>
+                        <span className="display-6 sf-query-title">{getQueryNiceName(fo.queryName)}</span>
                         <small>Error: Query not allowed in full screen</small>
                     </h3>
                 </div>
@@ -98,11 +99,11 @@ export default class SearchPage extends React.Component<SearchPageProps, SearchP
 
         return (
             <div id="divSearchPage">
-                <h3 className="display-6">
+                <h3 className="display-6 sf-query-title">
                     <span>{getQueryNiceName(fo.queryName)}</span>
                     &nbsp;
                     <a className="sf-popup-fullscreen" href="#" onClick={(e) => this.searchControl.handleFullScreenClick(e) }>
-                        <span className="fa fa-external-link"></span>
+                        <FontAwesomeIcon icon="external-link-alt" />
                     </a>
                 </h3>
                 <SearchControl ref={e => this.searchControl = e!}
@@ -116,6 +117,7 @@ export default class SearchPage extends React.Component<SearchPageProps, SearchP
                     showFilters={true}
                     showGroupButton={true}
                     avoidChangeUrl={false}
+                    maxResultsHeight={"none"}
 
                     onHeighChanged={this.onResize}
                     onSearch={result => this.changeUrl()}

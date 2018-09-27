@@ -172,10 +172,10 @@ namespace Signum.Services
                  () => Symbol.GetSymbolIds(type));
         }
 
-        public Dictionary<string, (PrimaryKey id, string name)> GetSemiSymbolIdsAndNames(Type type)
+        public Dictionary<string, SemiSymbol> GetSemiSymbolFromDatabase(Type type)
         {
             return Return(MethodInfo.GetCurrentMethod(),
-                 () => SemiSymbol.GetSemiSymbolIdsAndNames(type));
+                 () => SemiSymbol.GetFromDatabase(type));
         }
 
         public Dictionary<Type, Type> ImportPrimaryKeyDefinitions()
@@ -189,43 +189,43 @@ namespace Signum.Services
         public virtual QueryDescription GetQueryDescription(object queryName)
         {
             return Return(MethodInfo.GetCurrentMethod(),
-                () => DynamicQueryManager.Current.QueryDescription(queryName));
+                () => QueryLogic.Queries.QueryDescription(queryName));
         }
 
         public ResultTable ExecuteQuery(QueryRequest request)
         {
             return Return(MethodInfo.GetCurrentMethod(), request.QueryName.ToString(),
-                () => DynamicQueryManager.Current.ExecuteQuery(request));
+                () => QueryLogic.Queries.ExecuteQuery(request));
         }
         
         public virtual int ExecuteQueryCount(QueryValueRequest request)
         {
             return Return(MethodInfo.GetCurrentMethod(), request.QueryName.ToString(),
-                () => (int)DynamicQueryManager.Current.ExecuteQueryCount(request));
+                () => (int)QueryLogic.Queries.ExecuteQueryValue(request));
         }
 
         public virtual Lite<Entity> ExecuteUniqueEntity(UniqueEntityRequest request)
         {
             return Return(MethodInfo.GetCurrentMethod(), request.QueryName.ToString(),
-                () => DynamicQueryManager.Current.ExecuteUniqueEntity(request));
+                () => QueryLogic.Queries.ExecuteUniqueEntity(request));
         }
 
         public virtual List<object> GetQueryNames()
         {
             return Return(MethodInfo.GetCurrentMethod(),
-                () => DynamicQueryManager.Current.GetQueryNames());
+                () => QueryLogic.Queries.GetQueryNames());
         }
 
         public virtual List<QueryToken> ExternalQueryToken(QueryToken parent)
         {
             return Return(MethodInfo.GetCurrentMethod(),
-               () => DynamicQueryManager.Current.GetExtensions(parent).ToList());
+               () => QueryLogic.Expressions.GetExtensions(parent).ToList());
         }
 
         public virtual object[] BatchExecute(BaseQueryRequest[] requests)
         {
             return Return(MethodInfo.GetCurrentMethod(), requests.ToString("; "),
-                () => DynamicQueryManager.Current.BatchExecute(requests, CancellationToken.None).Result);
+                () => QueryLogic.Queries.BatchExecute(requests, CancellationToken.None).Result);
         }
         #endregion
 

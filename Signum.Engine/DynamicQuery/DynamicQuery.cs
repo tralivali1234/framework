@@ -24,7 +24,7 @@ namespace Signum.Engine.DynamicQuery
 {
     public class DynamicQueryBucket
     {
-        public Lazy<IDynamicQueryCore> Core { get; private set; }
+        public ResetLazy<IDynamicQueryCore> Core { get; private set; }
 
         public object QueryName { get; private set; }
 
@@ -38,7 +38,7 @@ namespace Signum.Engine.DynamicQuery
             this.QueryName = queryName ?? throw new ArgumentNullException("queryName");
             this.EntityImplementations = entityImplementations;
 
-            this.Core = new Lazy<IDynamicQueryCore>(() =>
+            this.Core = new ResetLazy<IDynamicQueryCore>(() =>
             {
                 var core = lazyQueryCore();
 
@@ -48,10 +48,10 @@ namespace Signum.Engine.DynamicQuery
 
                 core.EntityColumnFactory().Implementations = entityImplementations;
 
-                var errors = core.StaticColumns.Where(sc => sc.Implementations == null && sc.Type.CleanType().IsIEntity()).ToString(a => a.Name, ", ");
+                var errors = core.StaticColumns.Where(sc => sc.Implementations == null && sc.Type.CleanType().IsIEntity()).CommaAnd(a => $"'{a.Name}'");
 
                 if (errors.HasText())
-                    throw new InvalidOperationException("Column {0} of {1} does not have implementations deffined. Use Column extension method".FormatWith(errors, QueryUtils.GetKey(QueryName)));
+                    throw new InvalidOperationException("Column {0} of query '{1}' do(es) not have implementations deffined. Use Column extension method".FormatWith(errors, QueryUtils.GetKey(QueryName)));
 
                 return core;
             });
@@ -84,6 +84,7 @@ namespace Signum.Engine.DynamicQuery
         Task<Lite<Entity>> ExecuteUniqueEntityAsync(UniqueEntityRequest request, CancellationToken cancellationToken);
 
         IQueryable<Lite<Entity>> GetEntities(QueryEntitiesRequest request);
+        DQueryable<object> GetDQueryable(DQueryableRequest request);
     }
 
 
@@ -143,6 +144,7 @@ namespace Signum.Engine.DynamicQuery
         public abstract Task<Lite<Entity>> ExecuteUniqueEntityAsync(UniqueEntityRequest request, CancellationToken cancellationToken);
         
         public abstract IQueryable<Lite<Entity>> GetEntities(QueryEntitiesRequest request);
+        public abstract DQueryable<object> GetDQueryable(DQueryableRequest request);
 
 
         protected virtual ColumnDescriptionFactory[] InitializeColumns()
@@ -241,6 +243,11 @@ namespace Signum.Engine.DynamicQuery
 
         public IEnumerable<object> Collection{ get; private set; }
         public BuildExpressionContext Context { get; private set; }
+
+        public Expression<Func<object, V>> GetLambdaExpression<V>(QueryToken token)
+        {
+            return Expression.Lambda<Func<object, V>>(Expression.Convert(token.BuildExpression(Context), typeof(V)), Context.Parameter);
+        }
     }
 
     public class DEnumerableCount<T> : DEnumerable<T> 
@@ -285,11 +292,11 @@ namespace Signum.Engine.DynamicQuery
 
         #region Select
         
-        public static IEnumerable<object> SelectOne<T>(this DEnumerable<T> query, QueryToken token)
+        public static IEnumerable<object> SelectOne<T>(this DEnumerable<T> collection, QueryToken token)
         {
-            var exp = Expression.Lambda<Func<object, object>>(Expression.Convert(token.BuildExpression(query.Context), typeof(object)), query.Context.Parameter);
+            var exp = Expression.Lambda<Func<object, object>>(Expression.Convert(token.BuildExpression(collection.Context), typeof(object)), collection.Context.Parameter);
 
-            return query.Collection.Select(exp.Compile());
+            return collection.Collection.Select(exp.Compile());
         }
 
         public static IQueryable<object> SelectOne<T>(this DQueryable<T> query, QueryToken token)
@@ -311,9 +318,9 @@ namespace Signum.Engine.DynamicQuery
             return new DQueryable<T>(query.Query.Select(selector), newContext);
         }
 
-        public static DEnumerable<T> Select<T>(this DEnumerable<T> query, List<Column> columns)
+        public static DEnumerable<T> Select<T>(this DEnumerable<T> collection, List<Column> columns)
         {
-            return Select<T>(query, new HashSet<QueryToken>(columns.Select(c => c.Token)));
+            return Select<T>(collection, new HashSet<QueryToken>(columns.Select(c => c.Token)));
         }
 
         public static DEnumerable<T> Select<T>(this DEnumerable<T> collection, HashSet<QueryToken> columns)
@@ -471,18 +478,16 @@ namespace Signum.Engine.DynamicQuery
             if (filters == null || filters.Count == 0)
                 return null;
 
-            string str = filters.Select(f => QueryUtils.CanFilter(f.Token)).NotNull().ToString("\r\n");
+            string str = filters
+                .SelectMany(f => f.GetFilterConditions())
+                .Select(f => QueryUtils.CanFilter(f.Token))
+                .NotNull()
+                .ToString("\r\n");
+
             if (str == null)
                 throw new ApplicationException(str);
 
-            FilterBuildExpressionContext filterContext = new FilterBuildExpressionContext(context);
-
-            foreach (var f in filters)
-            {
-                f.GenerateCondition(filterContext);
-            }
-
-            Expression body = filterContext.Filters.Select(f => f.ToExpression(filterContext)).AggregateAnd();
+            Expression body = filters.Select(f => f.GetExpression(context)).AggregateAnd();
 
             return Expression.Lambda<Func<object, bool>>(body, context.Parameter);
         }
@@ -991,7 +996,7 @@ namespace Signum.Engine.DynamicQuery
             return ToResultTable(array, columnAccesors, collection.TotalElements, req.Pagination);
         }
 
-        public static ResultTable ToResultTable(this object[] result, List<(Column column, LambdaExpression lambda)> columnAccesors, int? totalElements,  Pagination pagination)
+        public static ResultTable ToResultTable(object[] result, List<(Column column, LambdaExpression lambda)> columnAccesors, int? totalElements,  Pagination pagination)
         {
             var columnValues = columnAccesors.Select(c => new ResultColumn( 
                 c.column,

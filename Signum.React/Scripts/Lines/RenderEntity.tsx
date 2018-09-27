@@ -5,7 +5,7 @@ import * as Constructor from '../Constructor'
 import * as Finder from '../Finder'
 import { FindOptions } from '../FindOptions'
 import { TypeContext, StyleContext, StyleOptions, FormGroupStyle, EntityFrame } from '../TypeContext'
-import { PropertyRoute, PropertyRouteType, MemberInfo, getTypeInfo, getTypeInfos, TypeInfo, IsByAll, ReadonlyBinding, LambdaMemberType } from '../Reflection'
+import { PropertyRoute, PropertyRouteType, MemberInfo, getTypeInfo, getTypeInfos, TypeInfo, IsByAll, ReadonlyBinding, MemberType } from '../Reflection'
 import { LineBase, LineBaseProps, runTasks, } from '../Lines/LineBase'
 import { ModifiableEntity, Lite, Entity, EntityControlMessage, JavascriptMessage, toLite, is, isEntity, isLite, isModifiableEntity, liteKey, getToString } from '../Signum.Entities'
 import { EntityBase, EntityBaseProps} from './EntityBase'
@@ -159,7 +159,7 @@ export class RenderEntity extends React.Component<RenderEntityProps, RenderEntit
             onClose: () => { throw new Error("Not implemented Exception"); },
             onReload: pack => { throw new Error("Not implemented Exception"); },
             setError: (modelState, initialPrefix) => { throw new Error("Not implemented Exception"); },
-            refreshCount: 0,
+            refreshCount: (ctx.frame ? ctx.frame.refreshCount : 0),
         }; 
 
         const newCtx = new TypeContext<ModifiableEntity>(ctx, { frame }, pr, new ReadonlyBinding(entity, ""));

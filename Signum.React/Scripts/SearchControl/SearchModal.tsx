@@ -1,5 +1,5 @@
-﻿
-import * as React from 'react'
+﻿import * as React from 'react'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import * as Finder from '../Finder'
 import { openModal, IModalProps } from '../Modals';
 import { ResultTable, FindOptions, FindMode, FilterOption, QueryDescription, ResultRow, ModalFindOptions } from '../FindOptions'
@@ -8,7 +8,6 @@ import { getQueryNiceName } from '../Reflection'
 import SearchControl, { SearchControlProps} from './SearchControl'
 import { Modal } from '../Components';
 import { ModalHeaderButtons } from '../Components/Modal';
-
 
 interface SearchModalProps extends React.Props<SearchModal>, IModalProps {
     findOptions: FindOptions;
@@ -20,6 +19,9 @@ interface SearchModalProps extends React.Props<SearchModal>, IModalProps {
 }
 
 export default class SearchModal extends React.Component<SearchModalProps, { show: boolean; }>  {
+
+    static marginVertical = 300;
+    static minHeight = 600;
 
     constructor(props: SearchModalProps) {
         super(props);
@@ -58,6 +60,28 @@ export default class SearchModal extends React.Component<SearchModalProps, { sho
 
     searchControl?: SearchControl;
 
+
+    componentWillMount() {
+        window.addEventListener('resize', this.onResize);
+    }
+
+
+    componentWillUnmount() {
+        window.removeEventListener('resize', this.onResize);
+    }
+
+    onResize = () => {
+        var sc = this.searchControl;
+        var scl = sc && sc.searchControlLoaded;
+        var containerDiv = scl && scl.containerDiv;
+        if (containerDiv) {
+
+            var maxHeight = (window.innerHeight - SearchModal.marginVertical);
+
+            containerDiv.style.maxHeight = Math.max(maxHeight, SearchModal.minHeight) + "px";
+        }
+    }
+
     render() {
 
         const okEnabled = this.props.isMany ? this.selectedRows.length > 0 : this.selectedRows.length == 1;
@@ -71,9 +95,9 @@ export default class SearchModal extends React.Component<SearchModalProps, { sho
                     okDisabled={!okEnabled}>
                     <span className="sf-entity-title"> {this.props.title}</span>
                     &nbsp;
-                        <a className="sf-popup-fullscreen pointer" onMouseUp={(e) => this.searchControl && this.searchControl.handleFullScreenClick(e)}>
-                        <span className="fa fa-external-link"></span>
-                        </a>
+                    <a className="sf-popup-fullscreen pointer" onMouseUp={(e) => this.searchControl && this.searchControl.handleFullScreenClick(e)}>
+                        <FontAwesomeIcon icon="external-link-alt" />
+                    </a>
                 </ModalHeaderButtons>
                 <div className="modal-body">
                     <SearchControl
@@ -82,10 +106,13 @@ export default class SearchModal extends React.Component<SearchModalProps, { sho
                         ref={e => this.searchControl = e!}
                         findOptions={this.props.findOptions}
                         onSelectionChanged={this.handleSelectionChanged}
+                        showGroupButton={this.props.findMode == "Explore"}
                         largeToolbarButtons={true}
+                        maxResultsHeight={"none"}
+                        onHeighChanged={this.onResize}
                         onDoubleClick={this.props.findMode == "Find" ? this.handleDoubleClick : undefined}
                         {...this.props.searchControlProps}
-                        />
+                    />
                 </div>
             </Modal>
         );
@@ -118,6 +145,8 @@ export default class SearchModal extends React.Component<SearchModalProps, { sho
         return openModal<void>(<SearchModal findOptions={findOptions}
             findMode={"Explore"}
             isMany={true}
-            title={modalOptions && modalOptions.title || getQueryNiceName(findOptions.queryName) } />);
+            title={modalOptions && modalOptions.title || getQueryNiceName(findOptions.queryName)}
+            searchControlProps={modalOptions && modalOptions.searchControlProps}
+        />);
     }
 }

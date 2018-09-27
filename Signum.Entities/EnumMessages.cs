@@ -134,6 +134,8 @@ Lose changes?")]
         CollectionsCanNotBeAddedAsColumns,
         [Description("Add filter")]
         AddFilter,
+        [Description("Add group")]
+        AddGroup,
         [Description("Add value")]
         AddValue,
         [Description("Delete filter")]
@@ -155,7 +157,7 @@ Lose changes?")]
         Query0IsNotAllowed,
         [Description("Query {0} is not allowed")]
         Query0NotAllowed,
-        [Description("Query {0} is not registered in the DynamicQueryManager")]
+        [Description("Query {0} is not registered in the QueryLogic.Queries")]
         Query0NotRegistered,
         Rename,
         [Description("{0} result[s].")]

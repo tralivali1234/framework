@@ -346,6 +346,28 @@ namespace Signum.Utilities.Reflection
             return false;
         }
 
+        public static bool IsIntegerNumber(Type type)
+        {
+            type = type.UnNullify();
+            if (type.IsEnum)
+                return false;
+
+            switch (Type.GetTypeCode(type))
+            {
+
+                case TypeCode.Byte:
+
+                case TypeCode.Int16:
+                case TypeCode.Int32:
+                case TypeCode.Int64:
+                case TypeCode.UInt16:
+                case TypeCode.UInt32:
+                case TypeCode.UInt64: return true;
+            }
+
+            return false;
+        }
+
         public static bool IsDecimalNumber(Type type)
         {
             type = type.UnNullify();
@@ -415,7 +437,7 @@ namespace Signum.Utilities.Reflection
             if (type == typeof(string))
                 return (object)value;
 
-            if (value == null || value == "")
+            if (value == null || value == "" || value == " ")
                 return (object)null;
 
             Type utype = type.UnNullify();
@@ -777,6 +799,6 @@ namespace Signum.Utilities.Reflection
         {
             return (pi.CanRead && pi.GetGetMethod().IsStatic) ||
                   (pi.CanWrite && pi.GetSetMethod().IsStatic);
-        }
+        }    
     }
 }

@@ -19,6 +19,7 @@ import { getEntityOperationButtons, defaultOnClick } from './Operations/EntityOp
 import { getConstructFromManyContextualItems, getEntityOperationsContextualItems, defaultContextualClick } from './Operations/ContextualOperations';
 import { ContextualItemsContext } from './SearchControl/ContextualItems';
 import { BsColor } from "./Components/Basic";
+import { IconProp } from "@fortawesome/fontawesome-svg-core";
 
 export function start() {
     ButtonBar.onButtonBarRender.push(getEntityOperationButtons);
@@ -27,17 +28,21 @@ export function start() {
 
     QuickLinks.registerGlobalQuickLink(ctx => new QuickLinks.QuickLinkExplore({
         queryName: OperationLogEntity,
-        parentColumn: "Target",
+        parentToken: "Target",
         parentValue: ctx.lite
     },
         {
             isVisible: getTypeInfo(ctx.lite.EntityType) && getTypeInfo(ctx.lite.EntityType).requiresSaveOperation && Finder.isFindable(OperationLogEntity, false),
-            icon: "fa fa-history",
+            icon: "history",
             iconColor: "green"
         }));
 }
 
 export const operationSettings: { [operationKey: string]: OperationSettings } = {};
+
+export function clearOperationSettings() {
+    Dic.clear(operationSettings);
+}
 
 export function addSettings(...settings: OperationSettings[]) {
     settings.forEach(s => Dic.addOrThrow(operationSettings, s.operationSymbol.key!, s));
@@ -57,6 +62,11 @@ export function isOperationInfoAllowed(oi: OperationInfo) {
 
 export function isOperationAllowed(operation: OperationSymbol | string, type: PseudoType): boolean {
     return isOperationInfoAllowed(getOperationInfo(operation, type));
+}
+
+export function isSomeOperationAllowed(operations: (OperationSymbol|string)[], type:PseudoType) : boolean{
+      return operations.some(a => isOperationAllowed(a, type))
+    
 }
 
 export function getOperationInfo(operation: OperationSymbol | string, type: PseudoType): OperationInfo {
@@ -148,10 +158,10 @@ export class ContextualOperationSettings<T extends Entity> extends OperationSett
 
     isVisible?: (ctx: ContextualOperationContext<T>) => boolean;
     hideOnCanExecute?: boolean;
-    confirmMessage?: (ctx: ContextualOperationContext<T>) => string;
+    confirmMessage?: (ctx: ContextualOperationContext<T>) => string | undefined | null;
     onClick?: (ctx: ContextualOperationContext<T>) => void;
     color?: BsColor;
-    icon?: string;
+    icon?: IconProp;
     iconColor?: string;
     order?: number;
 
@@ -166,10 +176,10 @@ export interface ContextualOperationOptions<T extends Entity> {
     text?: () => string;
     isVisible?: (ctx: ContextualOperationContext<T>) => boolean;
     hideOnCanExecute?: boolean;
-    confirmMessage?: (ctx: ContextualOperationContext<T>) => string;
+    confirmMessage?: (ctx: ContextualOperationContext<T>) => string | undefined | null;
     onClick?: (ctx: ContextualOperationContext<T>) => void;
     color?: BsColor;
-    icon?: string;
+    icon?: IconProp;
     iconColor?: string;
     order?: number;
 }
@@ -241,7 +251,7 @@ export class EntityOperationSettings<T extends Entity> extends OperationSettings
     contextualFromMany?: ContextualOperationSettings<T>;
 
     isVisible?: (ctx: EntityOperationContext<T>) => boolean;
-    confirmMessage?: (ctx: EntityOperationContext<T>) => string;
+    confirmMessage?: (ctx: EntityOperationContext<T>) => string | undefined | null;
     onClick?: (ctx: EntityOperationContext<T>) => void;
     hideOnCanExecute?: boolean;
     group?: EntityOperationGroup | null;
@@ -267,7 +277,7 @@ export interface EntityOperationOptions<T extends Entity> {
 
     text?: () => string;
     isVisible?: (ctx: EntityOperationContext<T>) => boolean;
-    confirmMessage?: (ctx: EntityOperationContext<T>) => string;
+    confirmMessage?: (ctx: EntityOperationContext<T>) => string | undefined | null;
     onClick?: (ctx: EntityOperationContext<T>) => void;
     hideOnCanExecute?: boolean;
     group?: EntityOperationGroup | null;
@@ -393,21 +403,21 @@ export namespace API {
         args: any[]
     }
 
-    interface ConstructOperationRequest {
+    export interface ConstructOperationRequest {
         operationKey: string;
         type?: string;
         args: any[];
     }
 
 
-    interface EntityOperationRequest {
+    export interface EntityOperationRequest {
         operationKey: string;
         entity: Entity;
         type?: string;
         args: any[];
     }
 
-    interface LiteOperationRequest {
+    export interface LiteOperationRequest {
         operationKey: string;
         lite: Lite<Entity>;
         type?: string;

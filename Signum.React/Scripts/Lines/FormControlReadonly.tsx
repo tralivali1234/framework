@@ -17,13 +17,37 @@ export class FormControlReadonly extends React.Component<FormControlReadonlyProp
 
         var attrs = this.props.htmlAttributes;
 
+        var array = React.Children.toArray(this.props.children);
 
-        var formControlClasses = ctx.readonlyAsPlainText ? ctx.formControlPlainTextClass : classes(ctx.formControlClass, "readonly");
+        var onlyText = array.length == 1 && typeof array[0] == "string" ? array[0] as string : undefined;
 
-        return (
-            <div {...attrs} className={classes(formControlClasses, attrs && attrs.className, this.props.className)}>
-                {this.props.children || "\u00A0" /*To get min height*/}
-            </div>
-        );
+        if (onlyText) { //Text is scrollable in inputs
+            if (ctx.readonlyAsPlainText) {
+                return (
+                    <input {...attrs} className={classes(ctx.formControlPlainTextClass, attrs && attrs.className, this.props.className)} value={onlyText}/>
+                );
+            } else {
+                return (
+                    <input {...attrs} {...{ readOnly: true }} className={classes(ctx.formControlClass, attrs && attrs.className, this.props.className)} value={onlyText} />
+                );
+            }
+        }
+        else {
+            if (ctx.readonlyAsPlainText) {
+                return (
+                    <div {...attrs} className={classes(ctx.formControlPlainTextClass, attrs && attrs.className, this.props.className)}>
+                        {this.props.children || <span>&nbsp;</span>}
+                    </div>
+                );
+            } else {
+                return (
+                    <div {...attrs} {...{ readOnly: true }} className={classes(ctx.formControlClass, attrs && attrs.className, this.props.className)}>
+                        {this.props.children || <span>&nbsp;</span>}
+                    </div>
+                );
+            }
+        }
+
+    
     }
 }

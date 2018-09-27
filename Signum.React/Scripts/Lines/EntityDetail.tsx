@@ -5,7 +5,7 @@ import * as Constructor from '../Constructor'
 import * as Finder from '../Finder'
 import { FindOptions } from '../FindOptions'
 import { TypeContext, StyleContext, StyleOptions, FormGroupStyle, EntityFrame } from '../TypeContext'
-import { PropertyRoute, PropertyRouteType, MemberInfo, getTypeInfo, getTypeInfos, TypeInfo, IsByAll, ReadonlyBinding, LambdaMemberType } from '../Reflection'
+import { PropertyRoute, PropertyRouteType, MemberInfo, getTypeInfo, getTypeInfos, TypeInfo, IsByAll, ReadonlyBinding, MemberType } from '../Reflection'
 import { LineBase, LineBaseProps, runTasks, } from './LineBase'
 import { FormGroup } from './FormGroup'
 import { FormControlReadonly } from './FormControlReadonly'
@@ -58,7 +58,7 @@ export class EntityDetail extends EntityBase<EntityDetailProps, EntityDetailProp
         const hasValue = !!s.ctx.value;
 
         const buttons = (
-            <span className="pull-right">
+            <span className="float-right">
                 {!hasValue && this.renderCreateButton(false)}
                 {!hasValue && this.renderFindButton(false)}
                 {hasValue && this.renderViewButton(false, s.ctx.value!)}

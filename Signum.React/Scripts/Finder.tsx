@@ -8,13 +8,14 @@ import { Dic } from './Globals'
 import { ajaxGet, ajaxPost } from './Services';
 
 import {
-    QueryDescription, QueryCountRequest, QueryRequest, QueryEntitiesRequest, FindOptions,
-    FindOptionsParsed, FilterOption, FilterOptionParsed, OrderOptionParsed, CountOptionsParsed,
+    QueryDescription, QueryValueRequest, QueryRequest, QueryEntitiesRequest, FindOptions,
+    FindOptionsParsed, FilterOption, FilterOptionParsed, OrderOptionParsed, ValueFindOptionsParsed,
     QueryToken, ColumnDescription, ColumnOption, ColumnOptionParsed, Pagination, ResultColumn,
-    ResultTable, ResultRow, OrderOption, SubTokensOptions, toQueryToken, isList, ColumnOptionsMode, FilterRequest, ModalFindOptions, OrderRequest
+    ResultTable, ResultRow, OrderOption, SubTokensOptions, toQueryToken, isList, ColumnOptionsMode, FilterRequest, ModalFindOptions, OrderRequest, ColumnRequest,
+    isFilterGroupOption, FilterGroupOptionParsed, FilterConditionOptionParsed, isFilterGroupOptionParsed, FilterGroupOption, FilterConditionOption, FilterGroupRequest, FilterConditionRequest
 } from './FindOptions';
 
-import { PaginationMode, OrderType, FilterOperation, FilterType, UniqueType, QueryTokenMessage } from './Signum.Entities.DynamicQuery';
+import { PaginationMode, OrderType, FilterOperation, FilterType, UniqueType, QueryTokenMessage, FilterGroupOperation } from './Signum.Entities.DynamicQuery';
 
 import { Entity, Lite, toLite, liteKey, parseLite, EntityControlMessage, isLite, isEntityPack, isEntity, External } from './Signum.Entities';
 import { TypeEntity, QueryEntity } from './Signum.Entities.Basics';
@@ -34,6 +35,9 @@ import { SearchControl } from "./Search";
 
 export const querySettings: { [queryKey: string]: QuerySettings } = {};
 
+export function clearQuerySettings() {
+    Dic.clear(querySettings);
+}
 
 export function start(options: { routes: JSX.Element[] }) {
     options.routes.push(<ImportRoute path="~/find/:queryName" onImportModule={() => import("./SearchControl/SearchPage")} />);
@@ -237,12 +241,12 @@ export function mergeColumns(columnDescriptions: ColumnDescription[], mode: Colu
 
     switch (mode) {
         case "Add":
-            return columnDescriptions.filter(cd => cd.name != "Entity").map(cd => ({ columnName: cd.name, displayName: cd.displayName }) as ColumnOption)
+            return columnDescriptions.filter(cd => cd.name != "Entity").map(cd => ({ token: cd.name, displayName: cd.displayName }) as ColumnOption)
                 .concat(columnOptions);
 
         case "Remove":
-            return columnDescriptions.filter(cd => cd.name != "Entity" && !columnOptions.some(a => a.columnName == cd.name))
-                .map(cd => ({ columnName: cd.name, displayName: cd.displayName }) as ColumnOption);
+            return columnDescriptions.filter(cd => cd.name != "Entity" && !columnOptions.some(a => a.token == cd.name))
+                .map(cd => ({ token: cd.name, displayName: cd.displayName }) as ColumnOption);
 
         case "Replace":
             return columnOptions;
@@ -268,7 +272,7 @@ export function smartColumns(current: ColumnOptionParsed[], ideal: ColumnDescrip
             if (j < current.length && similar(current[j], ideal[i]))
                 j++;
             else
-                toRemove.push({ columnName: ideal[i].name, });
+                toRemove.push({ token: ideal[i].name, });
         }
         if (toRemove.length + current.length == ideal.length) {
             return {
@@ -280,13 +284,13 @@ export function smartColumns(current: ColumnOptionParsed[], ideal: ColumnDescrip
     else if (current.every((c, i) => i >= ideal.length || similar(c, ideal[i]))) {
         return {
             mode: "Add",
-            columns: current.slice(ideal.length).map(c => ({ columnName: c.token!.fullKey, displayName: c.displayName }) as ColumnOption)
+            columns: current.slice(ideal.length).map(c => ({ token: c.token!.fullKey, displayName: c.displayName }) as ColumnOption)
         };
     }
 
     return {
         mode: "Replace",
-        columns: current.map(c => ({ columnName: c.token!.fullKey, displayName: c.displayName }) as ColumnOption),
+        columns: current.map(c => ({ token: c.token!.fullKey, displayName: c.displayName }) as ColumnOption),
     };
 }
 
@@ -304,27 +308,25 @@ export function parseFilterOptions(fos: FilterOption[], groupResults: boolean, q
 
     const completer = new TokenCompleter(qd);
     var sto = SubTokensOptions.CanElement | SubTokensOptions.CanAnyAll | (groupResults ? SubTokensOptions.CanAggregate : 0);
-    fos.forEach(a => completer.request(a.columnName, sto));
-
+    
+    fos.forEach(fo => completer.requestFilter(fo, sto));
+    
     return completer.finished()
-        .then(() => fos.map(fo => ({
-            token: completer.get(fo.columnName),
-            operation: fo.operation || "EqualTo",
-            value: fo.value,
-            frozen: fo.frozen || false,
-        }) as FilterOptionParsed))
+        .then(() => fos.map(fo => completer.toFilterOptionParsed(fo)))
         .then(filters => parseFilterValues(filters).then(() => filters));
 }
+
+
 
 export function parseOrderOptions(orderOptions: OrderOption[], groupResults: boolean, qd: QueryDescription): Promise<OrderOptionParsed[]> {
 
     const completer = new TokenCompleter(qd);
     var sto = SubTokensOptions.CanElement | (groupResults ? SubTokensOptions.CanAggregate : 0);
-    orderOptions.forEach(a => completer.request(a.columnName, sto));
+    orderOptions.forEach(a => completer.request(a.token, sto));
 
     return completer.finished()
         .then(() => orderOptions.map(oo => ({
-            token: completer.get(oo.columnName),
+            token: completer.get(oo.token),
             orderType: oo.orderType || "Ascending",
         }) as OrderOptionParsed));
 }
@@ -333,12 +335,12 @@ export function parseColumnOptions(columnOptions: ColumnOption[], groupResults: 
 
     const completer = new TokenCompleter(qd);
     var sto = SubTokensOptions.CanElement | (groupResults ? SubTokensOptions.CanAggregate : 0);
-    columnOptions.forEach(a => completer.request(a.columnName, sto));
+    columnOptions.forEach(a => completer.request(a.token, sto));
 
     return completer.finished()
         .then(() => columnOptions.map(co => ({
-            token: completer.get(co.columnName),
-            displayName: co.displayName || completer.get(co.columnName).niceName,
+            token: completer.get(co.token),
+            displayName: co.displayName || completer.get(co.token).niceName,
         }) as ColumnOptionParsed));
 }
 
@@ -355,11 +357,19 @@ export function setFilters(e: Entity, filterOptionsParsed: FilterOptionParsed[])
 
     const ti = getTypeInfo(e.Type);
 
-    return Promise.all(filterOptionsParsed.filter(fo => fo.token && fo.operation == "EqualTo").map(fo => {
+    return Promise.all(filterOptionsParsed.map(fo => {
+
+        if (isFilterGroupOptionParsed(fo) || fo.token == null || fo.operation != "EqualTo")
+            return null;
 
         const mi = getMemberForToken(ti, fo.token!.fullKey);
 
-        if (mi && (e as any)[mi.name.firstLower()] == null) {
+        if (!mi)
+            return null;
+
+        var val = (e as any)[mi.name.firstLower()];
+
+        if(val == null ||val == 0) {
             const promise = Navigator.tryConvert(fo.value, mi.type);
 
             if (promise == null)
@@ -369,6 +379,7 @@ export function setFilters(e: Entity, filterOptionsParsed: FilterOptionParsed[])
         }
 
         return null;
+
     }).filter(p => !!p)).then(() => e);
 }
 
@@ -387,8 +398,8 @@ export function toFindOptions(fo: FindOptionsParsed, qd: QueryDescription): Find
     var findOptions = {
         queryName: fo.queryKey,
         groupResults: fo.groupResults ? true : undefined,
-        filterOptions: fo.filterOptions.filter(a => !!a.token).map(f => ({ columnName: f.token!.fullKey, operation: f.operation, value: f.value, frozen: f.frozen }) as FilterOption),
-        orderOptions: fo.orderOptions.filter(a => !!a.token).map(o => ({ columnName: o.token.fullKey, orderType: o.orderType }) as OrderOption),
+        filterOptions: toFilterOptions(fo.filterOptions),
+        orderOptions: fo.orderOptions.filter(a => !!a.token).map(o => ({ token: o.token.fullKey, orderType: o.orderType }) as OrderOption),
         columnOptions: pair.columns,
         columnOptionsMode: pair.mode,
         pagination: fo.pagination && !equalsPagination(fo.pagination, defPagination) ? fo.pagination : undefined,
@@ -399,7 +410,7 @@ export function toFindOptions(fo: FindOptionsParsed, qd: QueryDescription): Find
         var onlyOrder = findOptions.orderOptions[0]
         var defaultOrder = getDefaultOrder(qd, qs);
 
-        if (defaultOrder && onlyOrder.columnName == defaultOrder.columnName && onlyOrder.orderType == defaultOrder.orderType)
+        if (defaultOrder && onlyOrder.token == defaultOrder.token && onlyOrder.orderType == defaultOrder.orderType)
             findOptions.orderOptions.remove(onlyOrder);
     }
 
@@ -416,15 +427,41 @@ export function getDefaultOrder(qd: QueryDescription, qs: QuerySettings): OrderO
         return undefined;
 
     return {
-        columnName: defaultOrder,
+        token: defaultOrder,
         orderType: qs && qs.defaultOrderType || (tis.some(a => a.entityData == "Transactional") ? "Descending" as OrderType : "Ascending" as OrderType)
     } as OrderOption;
 }
 
-export function toFilterOptions(filterOptionsParsed: FilterOptionParsed[]) {
-    return filterOptionsParsed
-        .filter(f => !!f.token)
-        .map(f => ({ columnName: f.token!.fullKey, operation: f.operation, value: f.value, frozen: f.frozen }) as FilterOption);
+export function isAggregate(fop: FilterOptionParsed): boolean {
+    if (isFilterGroupOptionParsed(fop))
+        return fop.filters.some(f => isAggregate(f));
+
+    return fop.token != null && fop.token.queryTokenType == "Aggregate";
+}
+
+export function toFilterOptions(filterOptionsParsed: FilterOptionParsed[]): FilterOption[] {
+
+    function toFilterOption(fop: FilterOptionParsed): FilterOption | null {
+        if (isFilterGroupOptionParsed(fop))
+            return ({
+                token: fop.token && fop.token.fullKey,
+                groupOperation: fop.groupOperation,
+                filters: fop.filters.map(fp => toFilterOption(fp)).filter(fo => !!fo)
+            }) as FilterGroupOption;
+        else {
+            if (fop.token == null)
+                return null;
+
+            return ({
+                token: fop.token && fop.token.fullKey,
+                operation: fop.operation,
+                value: fop.value,
+                frozen: fop.frozen,
+            }) as FilterConditionOption;
+        }
+    }
+
+    return filterOptionsParsed.map(fop => toFilterOption(fop)).filter(fo => fo != null) as FilterOption[];
 }
 
 export function parseFindOptions(findOptions: FindOptions, qd: QueryDescription): Promise<FindOptionsParsed> {
@@ -445,17 +482,19 @@ export function parseFindOptions(findOptions: FindOptions, qd: QueryDescription)
         if (defaultOrder)
             fo.orderOptions = [defaultOrder];
     }
-
-    var canAggregate = (findOptions ? SubTokensOptions.CanAggregate : 0);
+    
+    var canAggregate = (findOptions.groupResults ? SubTokensOptions.CanAggregate : 0);
     const completer = new TokenCompleter(qd);
+
+
     if (fo.filterOptions)
-        fo.filterOptions.forEach(a => completer.request(a.columnName, SubTokensOptions.CanElement | SubTokensOptions.CanAnyAll | canAggregate));
+        fo.filterOptions.forEach(fo => completer.requestFilter(fo, SubTokensOptions.CanElement | SubTokensOptions.CanAnyAll | canAggregate));
 
     if (fo.orderOptions)
-        fo.orderOptions.forEach(a => completer.request(a.columnName, SubTokensOptions.CanElement | canAggregate));
+        fo.orderOptions.forEach(oo => completer.request(oo.token, SubTokensOptions.CanElement | canAggregate));
 
     if (fo.columnOptions)
-        fo.columnOptions.forEach(a => completer.request(a.columnName, SubTokensOptions.CanElement | canAggregate));
+        fo.columnOptions.forEach(co => completer.request(co.token, SubTokensOptions.CanElement | canAggregate));
 
     return completer.finished().then(() => {
 
@@ -466,21 +505,16 @@ export function parseFindOptions(findOptions: FindOptions, qd: QueryDescription)
             systemTime: fo.systemTime,
 
             columnOptions: (fo.columnOptions || []).map(co => ({
-                token: completer.get(co.columnName),
-                displayName: co.displayName || completer.get(co.columnName).niceName
+                token: completer.get(co.token),
+                displayName: co.displayName || completer.get(co.token).niceName
             }) as ColumnOptionParsed),
 
             orderOptions: (fo.orderOptions || []).map(oo => ({
-                token: completer.get(oo.columnName),
+                token: completer.get(oo.token),
                 orderType: oo.orderType,
             }) as OrderOptionParsed),
 
-            filterOptions: (fo.filterOptions || []).map(fo => ({
-                token: completer.get(fo.columnName),
-                operation: fo.operation || "EqualTo",
-                value: fo.value,
-                frozen: fo.frozen || false,
-            }) as FilterOptionParsed),
+            filterOptions: (fo.filterOptions || []).map(fo => completer.toFilterOptionParsed(fo)),
         };
 
         return parseFilterValues(result.filterOptions)
@@ -490,12 +524,21 @@ export function parseFindOptions(findOptions: FindOptions, qd: QueryDescription)
 
 export function validateNewEntities(fo: FindOptions): string | undefined {
 
-    var types = [fo.parentValue, ...(fo.filterOptions || []).map(a => a.value)].flatMap(a => getTypeIfNew(a));
+    function getValues(fo: FilterOption) : any[] {
+        if (isFilterGroupOption(fo))
+            return fo.filters.flatMap(f => getValues(f));
 
-    if (types.length == 0)
+        return [fo.value];
+    }
+
+    var allValues = [fo.parentValue, ...(fo.filterOptions || []).flatMap(fo => getValues(fo))];
+
+    var allNewTypes = allValues.flatMap(a => getTypeIfNew(a));
+
+    if (allNewTypes.length == 0)
         return undefined;
 
-    return `Filtering by new ${types.joinComma(" and ")}. Consider hiding the control for new entities.`;
+    return `Filtering by new ${allNewTypes.joinComma(" and ")}. Consider hiding the control for new entities.`;
 }
 
 function getTypeIfNew(val: any): string[] {
@@ -525,19 +568,38 @@ export function exploreOrNavigate(findOptions: FindOptions): Promise<void> {
     });
 }
 
-export function getCount(queryName: PseudoType | QueryKey, filterOptions: FilterOption[], valueToken?: string): Promise<number> {
+export function getQueryValue(queryName: PseudoType | QueryKey, filterOptions: FilterOption[], valueToken?: string): Promise<any> {
     return getQueryDescription(queryName).then(qd => {
-        return parseFilterOptions(filterOptions, false, qd).then(fop => {
+        return parseFilterOptions(filterOptions, false, qd).then(fops => {
 
-            let filters = fop.map(fo => ({
-                token: fo.token!.fullKey,
-                operation: fo.operation,
-                value: fo.value,
-            } as FilterRequest));
+            let filters = toFilterRequests(fops);
 
-            return API.queryCount({ queryKey: qd.queryKey, filters, valueToken });
+            return API.queryValue({ queryKey: qd.queryKey, filters, valueToken });
         });
     });
+}
+
+export function toFilterRequests(fops: FilterOptionParsed[]): FilterRequest[] {
+    return fops.map(fop => toFilterRequest(fop)).filter(a => a != null) as FilterRequest[];
+}
+
+export function toFilterRequest(fop: FilterOptionParsed): FilterRequest | undefined {
+    if (isFilterGroupOptionParsed(fop))
+        return ({
+            groupOperation: fop.groupOperation,
+            token: fop.token && fop.token.fullKey,
+            filters: toFilterRequests(fop.filters)
+        } as FilterGroupRequest);
+    else {
+        if (fop.token == null || fop.token.filterType == null || fop.operation == null)
+            return undefined;
+
+        return fop.token && ({
+            token: fop.token.fullKey,
+            operation: fop.operation,
+            value: fop.value,
+        } as FilterConditionRequest);
+    }
 }
 
 export function fetchEntitiesWithFilters<T extends Entity>(queryName: Type<T>, filterOptions: FilterOption[], orderOptions: OrderOption[], count: number): Promise<Lite<T>[]>;
@@ -545,17 +607,13 @@ export function fetchEntitiesWithFilters(queryName: PseudoType | QueryKey, filte
 export function fetchEntitiesWithFilters(queryName: PseudoType | QueryKey, filterOptions: FilterOption[], orderOptions: OrderOption[], count: number): Promise<Lite<Entity>[]> {
     return getQueryDescription(queryName).then(qd =>
         parseFilterOptions(filterOptions, false, qd)
-            .then(fop =>
+            .then(fops =>
                 parseOrderOptions(orderOptions, false, qd).then(oop =>
                     API.fetchEntitiesWithFilters({
 
                         queryKey: qd.queryKey,
 
-                        filters: fop.map(fo => ({
-                            token: fo.token!.fullKey,
-                            operation: fo.operation,
-                            value: fo.value,
-                        } as FilterRequest)),
+                        filters: toFilterRequests(fops),
 
                         orders: oop.map(oo => ({
                             token: oo.token!.fullKey,
@@ -571,24 +629,24 @@ export function fetchEntitiesWithFilters(queryName: PseudoType | QueryKey, filte
 
 export function expandParentColumn(fo: FindOptions): FindOptions {
 
-    if (!fo.parentColumn)
+    if (!fo.parentToken)
         return fo;
 
     fo.filterOptions = [
-        { columnName: fo.parentColumn, operation: "EqualTo", value: fo.parentValue, frozen: true },
+        { token: fo.parentToken, operation: "EqualTo", value: fo.parentValue, frozen: true },
         ...(fo.filterOptions || [])
     ];
 
-    if (!fo.parentColumn.contains(".") && (fo.columnOptionsMode == undefined || fo.columnOptionsMode == "Remove")) {
+    if (!fo.parentToken.contains(".") && (fo.columnOptionsMode == undefined || fo.columnOptionsMode == "Remove")) {
         fo.columnOptions = [
-            { columnName: fo.parentColumn },
+            { token: fo.parentToken },
             ...(fo.columnOptions || [])
         ];
 
         fo.columnOptionsMode = "Remove";
     }
     
-    fo.parentColumn = undefined;
+    fo.parentToken = undefined;
     fo.parentValue = undefined;
 
     return fo;
@@ -613,6 +671,18 @@ export class TokenCompleter {
                 token?: QueryToken,
             })
     } = {};
+
+    requestFilter(fo: FilterOption, options: SubTokensOptions) {
+
+        if (isFilterGroupOption(fo)) {
+            fo.token && this.request(fo.token, options);
+
+            fo.filters.forEach(f => this.requestFilter(f, options));
+        } else {
+
+            this.request(fo.token, options);
+        }
+    }
 
     request(fullKey: string, options: SubTokensOptions): void {
 
@@ -656,6 +726,22 @@ export class TokenCompleter {
 
         return this.tokensToRequest[fullKey].token!;
     }
+
+    toFilterOptionParsed(fo: FilterOption): FilterOptionParsed {
+        if (isFilterGroupOption(fo))
+            return ({
+                token: fo.token && this.get(fo.token),
+                groupOperation: fo.groupOperation,
+                filters: fo.filters.map(f => this.toFilterOptionParsed(f))
+            } as FilterGroupOptionParsed);
+        else
+            return ({
+                token: this.get(fo.token),
+                operation: fo.operation || "EqualTo",
+                value: fo.value,
+                frozen: fo.frozen || false,
+            } as FilterConditionOptionParsed);
+    }
 }
 
 
@@ -663,21 +749,28 @@ export class TokenCompleter {
 export function parseFilterValues(filterOptions: FilterOptionParsed[]): Promise<void> {
 
     const needToStr: Lite<any>[] = [];
-    filterOptions.filter(fo => fo.token != null).forEach(fo => {
-        if (isList(fo.operation!)) {
-            if (!Array.isArray(fo.value))
-                fo.value = [fo.value];
 
-            fo.value = (fo.value as any[]).map(v => parseValue(fo.token!, v, needToStr));
-        }
-
+    function parseFilterValue(fo: FilterOptionParsed) {
+        if (isFilterGroupOptionParsed(fo))
+            fo.filters.forEach(f => parseFilterValue(f));
         else {
-            if (Array.isArray(fo.value))
-                throw new Error("Unespected array for operation " + fo.operation);
+            if (isList(fo.operation!)) {
+                if (!Array.isArray(fo.value))
+                    fo.value = [fo.value];
 
-            fo.value = parseValue(fo.token!, fo.value, needToStr);
+                fo.value = (fo.value as any[]).map(v => parseValue(fo.token!, v, needToStr));
+            }
+
+            else {
+                if (Array.isArray(fo.value))
+                    throw new Error("Unespected array for operation " + fo.operation);
+
+                fo.value = parseValue(fo.token!, fo.value, needToStr);
+            }
         }
-    });
+    }
+    
+    filterOptions.forEach(fo => parseFilterValue(fo));
 
     if (needToStr.length == 0)
         return Promise.resolve(undefined);
@@ -765,8 +858,8 @@ export module API {
         return ajaxPost<ResultTable>({ url: "~/api/query/executeQuery", abortController }, request);
     }
 
-    export function queryCount(request: QueryCountRequest, avoidNotifyPendingRequest: boolean | undefined = undefined, abortController?: FetchAbortController): Promise<number> {
-        return ajaxPost<number>({ url: "~/api/query/queryCount", avoidNotifyPendingRequests: avoidNotifyPendingRequest, abortController }, request);
+    export function queryValue(request: QueryValueRequest, avoidNotifyPendingRequest: boolean | undefined = undefined, abortController?: FetchAbortController): Promise<any> {
+        return ajaxPost<number>({ url: "~/api/query/queryValue", avoidNotifyPendingRequests: avoidNotifyPendingRequest, abortController }, request);
     }
 
     export function fetchEntitiesWithFilters(request: QueryEntitiesRequest): Promise<Lite<Entity>[]> {
@@ -795,8 +888,8 @@ export module API {
         count: number;
     }
 
-    export function findLiteLikeWithFilters(request: AutocompleteQueryRequest, abortController?: FetchAbortController): Promise<Lite<Entity>[]> {
-        return ajaxPost<Lite<Entity>[]>({ url: "~/api/query/findLiteLikeWithFilters", abortController }, request);
+    export function FindRowsLike(request: AutocompleteQueryRequest, abortController?: FetchAbortController): Promise<ResultTable> {
+        return ajaxPost<ResultTable>({ url: "~/api/query/findRowsLike", abortController }, request);
     }
 
     export function parseTokens(queryKey: string, tokens: { token: string, options: SubTokensOptions }[]): Promise<QueryToken[]> {
@@ -820,6 +913,7 @@ export module API {
     export interface AutocompleteQueryRequest {
         queryKey: string;
         filters: FilterRequest[];
+        columns: ColumnRequest[];
         orders: OrderRequest[];
         subString: string;
         count: number;
@@ -833,18 +927,34 @@ export module API {
 export module Encoder {
 
     export function encodeFilters(query: any, filterOptions?: FilterOption[]) {
+
+        var i: number = 0;
+
+        function encodeFilter(fo: FilterOption, identation: number) {
+
+            var identSuffix = identation == 0 ? "" : ("_" + identation);
+
+            if (isFilterGroupOption(fo)) {
+                query["filter" + (i++) + identSuffix] = (fo.token || "") + "~" + (fo.groupOperation);
+
+                fo.filters.forEach(f => encodeFilter(f, identation + 1));
+            } else {
+                query["filter" + (i++) + identSuffix] = fo.token + "~" + (fo.operation || "EqualTo") + "~" + stringValue(fo.value);
+            }
+        }
+
         if (filterOptions)
-            filterOptions.forEach((fo, i) => query["filter" + i] = getTokenString(fo) + "~" + (fo.operation || "EqualTo") + "~" + stringValue(fo.value));
+            filterOptions.forEach(fo => encodeFilter(fo, 0));
     }
 
     export function encodeOrders(query: any, orderOptions?: OrderOption[]) {
         if (orderOptions)
-            orderOptions.forEach((oo, i) => query["order" + i] = (oo.orderType == "Descending" ? "-" : "") + getTokenString(oo));
+            orderOptions.forEach((oo, i) => query["order" + i] = (oo.orderType == "Descending" ? "-" : "") + oo.token);
     }
 
     export function encodeColumns(query: any, columnOptions?: ColumnOption[]) {
         if (columnOptions)
-            columnOptions.forEach((co, i) => query["column" + i] = getTokenString(co) + (co.displayName ? ("~" + scapeTilde(co.displayName)) : ""));
+            columnOptions.forEach((co, i) => query["column" + i] = co.token + (co.displayName ? ("~" + scapeTilde(co.displayName)) : ""));
     }
 
     export function stringValue(value: any): string {
@@ -870,34 +980,53 @@ export module Encoder {
 
         return str.replace("~", "#|#");
     }
-
-    export function getTokenString(tokenContainer: { columnName: string, token?: QueryToken }) {
-        return tokenContainer.token ? tokenContainer.token.fullKey : tokenContainer.columnName;
-    }
 }
 
 
 
 export module Decoder {
-    export function valuesInOrder(query: any, prefix: string): string[] {
-        const regex = new RegExp("^" + prefix + "(\\d*)$");
 
-        return Dic.getKeys(query).map(s => regex.exec(s))
-            .filter(r => !!r).map(r => r!).orderBy(a => parseInt(a[1])).map(s => query[s[0]]);
+    interface FilterPart {
+        order: number;
+        identation: number;
+        value: string;
+    };
+
+    export function filterInOrder(query: any, prefix: string): FilterPart[] {
+        const regex = new RegExp("^" + prefix + "(\\d*)(_(\\d*))?$");
+
+        return Dic.getKeys(query)
+            .map(s => regex.exec(s))
+            .filter(r => !!r)
+            .map(m => ({ order: parseInt(m![1]), identation: parseInt(m![3] || "0"), value: query[m![0]] }))
+            .orderBy(a => a.order);
     }
 
-
     export function decodeFilters(query: any): FilterOption[] {
-        return valuesInOrder(query, "filter").map(val => {
-            const parts = val.split("~");
 
-            return {
-                columnName: parts[0],
-                operation: parts[1] as FilterOperation,
-                value: parts.length == 3 ? unscapeTildes(parts[2]) :
-                    parts.slice(2).map(a => unscapeTildes(a))
-            } as FilterOption;
-        });
+        function toFilterList(filters: FilterPart[], identation: number): FilterOption[] {
+
+            return filters.groupWhen(a => a.identation == identation).map(gr => {
+                const parts = gr.key.value.split("~");
+
+                if (FilterOperation.isDefined(parts[1])) {
+                    return ({
+                        token: parts[0],
+                        operation: FilterOperation.assertDefined(parts[1]),
+                        value: parts.length == 3 ? unscapeTildes(parts[2]) :
+                            parts.slice(2).map(a => unscapeTildes(a))
+                    }) as FilterConditionOption
+                } else {
+                    return ({
+                        token: parts[0] || null,
+                        groupOperation: FilterGroupOperation.assertDefined(parts[1]),
+                        filters: toFilterList(gr.elements, identation + 1),
+                    }) as FilterGroupOption;
+                }
+            });
+        }
+        
+        return toFilterList(filterInOrder(query, "filter"), 0)
     }
 
     export function unscapeTildes(str: string | undefined): string | undefined {
@@ -907,17 +1036,24 @@ export module Decoder {
         return str.replace("#|#", "~");
     }
 
+    export function valuesInOrder(query: any, prefix: string): string[] {
+        const regex = new RegExp("^" + prefix + "(\\d*)$");
+
+        return Dic.getKeys(query).map(s => regex.exec(s))
+            .filter(r => !!r).map(r => r!).orderBy(a => parseInt(a[1])).map(s => query[s[0]]);
+    }
+
     export function decodeOrders(query: any): OrderOption[] {
         return valuesInOrder(query, "order").map(val => ({
             orderType: val[0] == "-" ? "Descending" : "Ascending",
-            columnName: val[0] == "-" ? val.tryAfter("-") : val
+            token: val[0] == "-" ? val.tryAfter("-") : val
         } as OrderOption));
     }
 
     export function decodeColumns(query: any): ColumnOption[] {
 
         return valuesInOrder(query, "column").map(val => ({
-            columnName: val.tryBefore("~") || val,
+            token: val.tryBefore("~") || val,
             displayName: unscapeTildes(val.tryAfter("~"))
         }) as ColumnOption);
     }
@@ -954,7 +1090,7 @@ export interface QuerySettings {
     defaultOrderColumn?: string;
     defaultOrderType?: OrderType;
     hiddenColumns?: ColumnOption[];
-    formatters?: { [columnName: string]: CellFormatter };
+    formatters?: { [token: string]: CellFormatter };
     rowAttributes?: (row: ResultRow, columns: string[]) => React.HTMLAttributes<HTMLTableRowElement> | undefined;
     entityFormatter?: EntityFormatter;
     onDoubleClick?: (e: React.MouseEvent<any>, row: ResultRow) => void;
@@ -1016,7 +1152,14 @@ export const formatRules: FormatRule[] = [
     {
         name: "Enum",
         isApplicable: col => col.token!.filterType == "Enum",
-        formatter: col => new CellFormatter(cell => cell == undefined ? undefined : <span>{getEnumInfo(col.token!.type.name, cell).niceName}</span>)
+        formatter: col => new CellFormatter(cell => {
+            if (cell == undefined)
+                return undefined;
+
+            var ei = getEnumInfo(col.token!.type.name, cell);
+
+            return <span>{ei ? ei.niceName : cell}</span>
+        })
     },
     {
         name: "Lite",

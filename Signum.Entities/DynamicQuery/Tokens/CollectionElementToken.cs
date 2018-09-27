@@ -112,9 +112,6 @@ namespace Signum.Entities.DynamicQuery
 
         public override string NiceName()
         {
-            if (!CollectionElementType.IsElement())
-                return null;
-
             Type parentElement = elementType.CleanType();
 
             if (parentElement.IsModifiableEntity())
@@ -149,7 +146,6 @@ namespace Signum.Entities.DynamicQuery
             return allTokens
                 .SelectMany(t => t.Follow(tt => tt.Parent))
                 .OfType<CollectionElementToken>()
-                .Where(a => a.CollectionElementType.IsElement())
                 .Distinct()
                 .OrderBy(a => a.FullKey().Length)
                 .ToList();
@@ -169,123 +165,14 @@ namespace Signum.Entities.DynamicQuery
         }
     }
 
-
-    public class FilterBuildExpressionContext : BuildExpressionContext
-    {
-        public FilterBuildExpressionContext(BuildExpressionContext context)
-            : base(context.TupleType, context.Parameter, context.Replacemens.ToDictionary())
-        {
-        }
-
-        public readonly Dictionary<CollectionElementToken, AnyAllFilter> AllAnyFilters = new Dictionary<CollectionElementToken, AnyAllFilter>();
-        public readonly List<IFilterExpression> Filters = new List<IFilterExpression>();
-    }
-
-    public interface IFilterExpression
-    {
-        Expression ToExpression(FilterBuildExpressionContext ctx);
-    }
-
-    public class FilterExpression : IFilterExpression
-    {
-        public FilterExpression(Expression expresion)
-        {
-            this.Expression = expresion;
-        }
-
-        public readonly Expression Expression;
-
-        public Expression ToExpression(FilterBuildExpressionContext ctx)
-        {
-            return Expression;
-        }
-    }
-
-    public class AnyAllFilter : IFilterExpression
-    {
-        public AnyAllFilter(CollectionElementToken ce)
-        {
-            if (ce.CollectionElementType.ToString().StartsWith("Element"))
-                throw new ArgumentException("ce should be non-Free Any or All");
-
-            this.Token = ce;
-            this.Parameter = ce.CreateParameter();
-        }
-
-        public readonly ParameterExpression Parameter;
-        public readonly CollectionElementToken Token;
-        public readonly List<IFilterExpression> Filters = new List<IFilterExpression>();
-
-        static MethodInfo miAnyE = ReflectionTools.GetMethodInfo((IEnumerable<string> col) => col.Any(null)).GetGenericMethodDefinition();
-        static MethodInfo miAllE = ReflectionTools.GetMethodInfo((IEnumerable<string> col) => col.All(null)).GetGenericMethodDefinition();
-        static MethodInfo miAnyQ = ReflectionTools.GetMethodInfo((IQueryable<string> col) => col.Any(null)).GetGenericMethodDefinition();
-        static MethodInfo miAllQ = ReflectionTools.GetMethodInfo((IQueryable<string> col) => col.All(null)).GetGenericMethodDefinition();
-
-        public Expression ToExpression(FilterBuildExpressionContext ctx)
-        {
-            var collection = Token.Parent.BuildExpression(ctx);
-
-            var and = Filters.Select(f => f.ToExpression(ctx)).AggregateAnd();
-
-            string type = Token.CollectionElementType.ToString();
-
-            if (type.StartsWith("AnyNo"))
-                and = Expression.Not(and);
-
-            var lambda = Expression.Lambda(and, Parameter);
-
-            MethodInfo mi = typeof(IQueryable).IsAssignableFrom(Token.Parent.Type) ?
-                 (type.StartsWith("All") ? miAllQ : miAnyQ) :
-                 (type.StartsWith("All") ? miAllE : miAnyE);
-
-            var result = Expression.Call(mi.MakeGenericMethod(Parameter.Type), collection, lambda);
-
-            if (type.StartsWith("NoOne"))
-                return Expression.Not(result);
-
-            return result;
-        }
-    }
-
     [DescriptionOptions(DescriptionOptions.Members)]
     public enum CollectionElementType
     {
         Element,
-        Any,
-        All,
-        NoOne,
-        AnyNo,
-
         [Description("Element (2)")]
         Element2,
-        [Description("Any (2)")]
-        Any2,
-        [Description("All (2)")]
-        All2,
-        [Description("No one (2)")]
-        NoOne2,
-        [Description("Any no (2)")]
-        AnyNo2,
-
         [Description("Element (3)")]
         Element3,
-        [Description("Any (3)")]
-        Any3,
-        [Description("All (3)")]
-        All3,
-        [Description("No one (3)")]
-        NoOne3,
-        [Description("Any no (3)")]
-        AnyNo3,
     }
-
-    public static class CollectionElementTypeExtensions
-    {
-        public static bool IsElement(this CollectionElementType cet)
-        {
-            return cet == CollectionElementType.Element ||
-                cet == CollectionElementType.Element2 ||
-                cet == CollectionElementType.Element3;
-        }
-    }
+    
 }

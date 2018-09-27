@@ -5,8 +5,10 @@ import { ResultTable, FindOptions, FilterOption, QueryDescription } from '../Fin
 import { Entity, Lite, is, toLite, LiteMessage, getToString, EntityPack, ModelState, ModifiableEntity } from '../Signum.Entities'
 import { TypeContext, StyleOptions, EntityFrame } from '../TypeContext'
 import { getTypeInfo, TypeInfo, PropertyRoute, ReadonlyBinding, getTypeInfos } from '../Reflection'
+import { ErrorBoundary } from "../Components/ErrorBoundary";
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
-export default class ContainerToggleComponent extends React.Component<React.Props<ContainerToggleComponent>, { fluid: boolean }>{
+export default class ContainerToggleComponent extends React.Component<{}, { fluid: boolean }>{
 
     state = { fluid: false };
     
@@ -23,11 +25,13 @@ export default class ContainerToggleComponent extends React.Component<React.Prop
 
     render() {
         return (
-            <div className={this.state.fluid ? "container-fluid" : "container"}>
-                <a className="expand-window" onClick={this.handleExpandToggle} href="#">
-                    <span className={classes("fa", this.state.fluid ? "fa-compress" : "fa-expand")} />
+            <div className={classes(this.state.fluid ? "container-fluid" : "container", "mt-3")}>
+                <a className="expand-window d-none d-md-block" onClick={this.handleExpandToggle} href="#" >
+                    <FontAwesomeIcon icon={this.state.fluid ? "compress" : "expand"}/>
                 </a> 
-                { this.props.children }
+                <ErrorBoundary>
+                    {this.props.children}
+                </ErrorBoundary>
             </div>
         );
     }

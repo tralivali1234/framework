@@ -2,7 +2,7 @@
 import { Router, Route, Redirect } from "react-router"
 
 import { Dic } from '../Globals';
-import { Lite, Entity, liteKey, ModifiableEntity } from '../Signum.Entities';
+import { Lite, Entity, liteKey, ModifiableEntity, getToString } from '../Signum.Entities';
 import * as Navigator from '../Navigator';
 import { Link  } from 'react-router-dom';
 
@@ -11,6 +11,7 @@ export interface EntityLinkProps extends React.HTMLAttributes<HTMLAnchorElement>
     inSearch?: boolean;
     onNavigated?: (lite: Lite<Entity>) => void;
     getViewPromise?: (e: ModifiableEntity) => undefined | string | Navigator.ViewPromise<ModifiableEntity>;
+    innerRef?: (node: HTMLAnchorElement | null) => void;
 }
 
 
@@ -20,13 +21,14 @@ export default class EntityLink extends React.Component<EntityLinkProps>{
         const { lite, inSearch, children, onNavigated, getViewPromise, ...htmlAtts } = this.props;
 
         if (!Navigator.isNavigable(lite.EntityType, undefined, this.props.inSearch || false))
-            return <span data-entity={liteKey(lite) }>{this.props.children || lite.toStr}</span>;
+            return <span data-entity={liteKey(lite) }>{this.props.children || getToString(lite)}</span>;
 
 
         return (
             <Link
+                innerRef={this.props.innerRef}
                 to={Navigator.navigateRoute(lite)}
-                title={this.props.title || lite.toStr}
+                title={this.props.title || getToString(lite)}
                 onClick={this.handleClick}
                 data-entity={liteKey(lite)}
                 {...(htmlAtts as React.HTMLAttributes<HTMLAnchorElement>) }>

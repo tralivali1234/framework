@@ -138,7 +138,7 @@ namespace Signum.Entities.DynamicQuery
 
             string allowed = result.IsAllowed();
             if (allowed != null)
-                throw new UnauthorizedAccessException($"Access to token '{key}' in '{this.FullKey()}' for query '{QueryUtils.GetKey(this.QueryName)}' is not allowed because: {allowed}");
+                throw new UnauthorizedAccessException($"Access to token '{this.FullKey()}.{key}' in query '{QueryUtils.GetKey(this.QueryName)}' is not allowed because: {allowed}");
 
             return result;
         }
@@ -237,13 +237,15 @@ namespace Signum.Entities.DynamicQuery
             return new List<QueryToken>
             {
                 new NetPropertyToken(parent, ReflectionTools.GetPropertyInfo((DateTime dt)=>dt.Year), () => utc + QueryTokenMessage.Year.NiceToString()),
+                new NetPropertyToken(parent, ReflectionTools.GetMethodInfo((DateTime dt ) => dt.Quarter()), ()=> utc + QueryTokenMessage.Quarter.NiceToString()),
+                new DatePartStartToken(parent, QueryTokenMessage.QuarterStart),
                 new NetPropertyToken(parent, ReflectionTools.GetPropertyInfo((DateTime dt)=>dt.Month),() => utc + QueryTokenMessage.Month.NiceToString()),
                 new DatePartStartToken(parent, QueryTokenMessage.MonthStart),
-                new WeekNumberToken(parent),
+                new NetPropertyToken(parent, ReflectionTools.GetMethodInfo((DateTime dt ) => dt.WeekNumber()), ()=> utc + QueryTokenMessage.WeekNumber.NiceToString()),
                 new DatePartStartToken(parent, QueryTokenMessage.WeekStart),
                 new NetPropertyToken(parent, ReflectionTools.GetPropertyInfo((DateTime dt)=>dt.Day), () => utc + QueryTokenMessage.Day.NiceToString()),
-                new DayOfYearToken(parent),
-                new DayOfWeekToken(parent),
+                new NetPropertyToken(parent, ReflectionTools.GetPropertyInfo((DateTime dt)=>dt.DayOfYear), () => utc + QueryTokenMessage.DayOfYear.NiceToString()),
+                new NetPropertyToken(parent, ReflectionTools.GetPropertyInfo((DateTime dt)=>dt.DayOfWeek), () => utc + QueryTokenMessage.DayOfWeek.NiceToString()),
                 new DateToken(parent),
                 precission < DateTimePrecision.Hours ? null: new NetPropertyToken(parent, ReflectionTools.GetPropertyInfo((DateTime dt)=>dt.Hour), () => utc + QueryTokenMessage.Hour.NiceToString()),
                 precission < DateTimePrecision.Hours ? null: new DatePartStartToken(parent, QueryTokenMessage.HourStart),
@@ -280,9 +282,11 @@ namespace Signum.Entities.DynamicQuery
 
             List<QueryToken> tokens = new List<QueryToken>() { new CountToken(parent) };
 
-            tokens.AddRange(from cet in EnumExtensions.GetValues<CollectionElementType>()
-                            where (options & (cet.IsElement() ? SubTokensOptions.CanElement : SubTokensOptions.CanAnyAll)) != 0
-                            select new CollectionElementToken(parent, cet));
+            if ((options & SubTokensOptions.CanElement) == SubTokensOptions.CanElement)
+                tokens.AddRange(EnumExtensions.GetValues<CollectionElementType>().Select(cet => new CollectionElementToken(parent, cet)));
+
+            if ((options & SubTokensOptions.CanAnyAll) == SubTokensOptions.CanAnyAll)
+                tokens.AddRange(EnumExtensions.GetValues<CollectionAnyAllType>().Select(caat => new CollectionAnyAllToken(parent, caat)));
 
             return tokens;
         }
@@ -432,6 +436,11 @@ namespace Signum.Entities.DynamicQuery
         public readonly Type TupleType;
         public readonly ParameterExpression Parameter;
         public readonly Dictionary<QueryToken, Expression> Replacemens;
+
+        internal Expression<Func<object, Lite<Entity>>> GetEntitySelector()
+        {
+            return Expression.Lambda<Func<object, Lite<Entity>>>(Replacemens.Single(a=>a.Key.FullKey() == "Entity").Value, Parameter);
+        }
     }
 
 
@@ -470,6 +479,10 @@ namespace Signum.Entities.DynamicQuery
         Month,
         [Description("Month Start")]
         MonthStart,
+        [Description("Quarter")]
+        Quarter,
+        [Description("Quarter Start")]
+        QuarterStart,
         [Description("Week Start")]
         WeekStart,
         [Description("Hour Start")]

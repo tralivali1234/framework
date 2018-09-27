@@ -166,14 +166,6 @@ fieldset.sf-repeater-element {
             margin-right: 5px;
         }
 
-
-body.rtl .fa-arrow-right:before {
-    content: "\F060";
-}
-
-body.rtl .fa-arrow-left:before {
-    content: "\F061";
-}
 /*EntityStrip*/
 
 ul.sf-strip-horizontal > li {
@@ -246,7 +238,7 @@ ul.nav-tabs {
     cursor: move;
 }
 
-.form-group.row > label {
+body.rtl .form-group.row > label {
     text-align: end;
 }
 
@@ -373,7 +365,7 @@ select.form-control-xs:not([size]):not([multiple]),
 
 .rw-widget-xs .rw-input {
     padding: 0px 3px;
-    height: 18px;
+    height: 22px;
 }
 
 .rw-widget-xs .rw-widget-picker {
@@ -531,3 +523,16 @@ table.sf-multi-value {
         padding:0px;
         padding-bottom: 2px;
     }
+
+
+.sf-type-badge {
+    border: 1px solid gray;
+    color: gray;
+    display: inline-block;
+    padding: 0.3em 0.4em 0.1em 0.4em;
+    font-size: 75%;
+    font-weight: 700;
+    line-height: 1;
+    border-radius: 0.25rem;
+    background-color: #efefef;
+}

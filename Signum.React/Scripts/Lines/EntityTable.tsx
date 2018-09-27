@@ -5,13 +5,15 @@ import * as Constructor from '../Constructor'
 import * as Finder from '../Finder'
 import { FindOptions } from '../FindOptions'
 import { TypeContext, StyleContext, StyleOptions, FormGroupStyle, mlistItemContext, EntityFrame } from '../TypeContext'
-import { PropertyRoute, PropertyRouteType, MemberInfo, getTypeInfo, getTypeInfos, TypeInfo, IsByAll, ReadonlyBinding, LambdaMemberType, Type } from '../Reflection'
+import { PropertyRoute, PropertyRouteType, MemberInfo, getTypeInfo, getTypeInfos, TypeInfo, IsByAll, ReadonlyBinding, MemberType, Type } from '../Reflection'
 import { LineBase, LineBaseProps, runTasks, } from '../Lines/LineBase'
 import { ModifiableEntity, Lite, Entity, MList, MListElement, EntityControlMessage, JavascriptMessage, toLite, is, liteKey, getToString } from '../Signum.Entities'
 import { EntityBase } from './EntityBase'
 import { EntityListBase, EntityListBaseProps, DragConfig } from './EntityListBase'
 import DynamicComponent from './DynamicComponent'
 import { RenderEntity } from './RenderEntity'
+import { MaxHeightProperty } from 'csstype';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
 export interface EntityTableProps extends EntityListBaseProps {
     createAsLink?: boolean | ((er: EntityTable) => React.ReactElement<any>);
@@ -21,6 +23,8 @@ export interface EntityTableProps extends EntityListBaseProps {
     onRowHtmlAttributes?: (ctx: TypeContext<any /*T*/>, row: EntityTableRow, rowState: any) => React.HTMLAttributes<any> | null | undefined;
     avoidFieldSet?: boolean;
     avoidEmptyTable?: boolean;
+    maxResultsHeight?: MaxHeightProperty<string | number> | any;
+    scrollable?: boolean;
 }
 
 export interface EntityTableColumn<T, RS> {
@@ -32,6 +36,11 @@ export interface EntityTableColumn<T, RS> {
 }
 
 export class EntityTable extends EntityListBase<EntityTableProps, EntityTableProps> {
+
+    static defaultProps = {
+        maxResultsHeight: "400px",
+        scrollable: false
+    };
 
     static typedColumns<T extends ModifiableEntity>(columns: (EntityTableColumn<T, any> | null | undefined)[]): EntityTableColumn<ModifiableEntity, any>[] {
         return columns.filter(a => a != null).map(a => a!) as EntityTableColumn<ModifiableEntity, any>[];
@@ -51,7 +60,7 @@ export class EntityTable extends EntityListBase<EntityTableProps, EntityTablePro
         super.overrideProps(state, overridenProps);
 
         if (!state.columns) {
-            var elementPr = state.ctx.propertyRoute.add(a => a[0].element);
+            var elementPr = state.ctx.propertyRoute.addLambda(a => a[0].element);
 
             state.columns = Dic.getKeys(elementPr.subMembers())
                 .filter(a => a != "Id")
@@ -92,7 +101,7 @@ export class EntityTable extends EntityListBase<EntityTableProps, EntityTablePro
 
     renderButtons() {
         const buttons = (
-            <span className="pull-right">
+            <span className="float-right">
                 {this.state.createAsLink == false && this.renderCreateButton(false)}
                 {this.renderFindButton(false)}
             </span>
@@ -101,52 +110,68 @@ export class EntityTable extends EntityListBase<EntityTableProps, EntityTablePro
         return (EntityBase.hasChildrens(buttons) ? buttons : undefined);
     }
 
+    componentDidMount() {
+        this.containerDiv!.addEventListener("scroll", (e) => {
+            var translate = "translate(0," + this.containerDiv!.scrollTop + "px)";
+            this.thead!.style.transform = translate;
+        });
+    }
+
+
+    containerDiv?: HTMLDivElement | null;
+    thead?: HTMLTableSectionElement | null;
+
     renderTable(ctx: TypeContext<MList<ModifiableEntity>>) {
 
         const readOnly = ctx.readOnly;
-        const elementPr = ctx.propertyRoute.add(a => a[0].element);
+        const elementPr = ctx.propertyRoute.addLambda(a => a[0].element);
 
         return (
-            <table className="table table-sm sf-table">
-                {
-                    (!this.props.avoidEmptyTable || ctx.value.length > 0) && <thead>
-                        <tr className="bg-light">
-                            <th></th>
-                            {
-                                this.state.columns!.map((c, i) => <th key={i} {...c.headerHtmlAttributes}>
-                                    {c.header === undefined && c.property ? elementPr.add(c.property).member!.niceName : c.header}
-                                </th>)
-                            }
-                        </tr>
-                    </thead>
-                }
-                <tbody>
+            <div ref={d => this.containerDiv = d}
+                className={this.props.scrollable ? "sf-scroll-table-container table-responsive" : undefined}
+                style={{ maxHeight: this.props.scrollable ? this.props.maxResultsHeight : undefined }}>
+                <table className="table table-sm sf-table">
                     {
-                        mlistItemContext(ctx).map((mlec, i) =>
-                            (<EntityTableRow key={i}
-                                index={i}
-                                onRowHtmlAttributes={this.props.onRowHtmlAttributes}
-                                fetchRowState={this.props.fetchRowState}
-                                onRemove={this.canRemove(mlec.value) && !readOnly ? e => this.handleRemoveElementClick(e, i) : undefined}
-                                draggable={this.canMove(mlec.value) && !readOnly ? this.getDragConfig(i, "v") : undefined}
-                                columns={this.state.columns!}
-                                ctx={mlec} />))
+                        (!this.props.avoidEmptyTable || ctx.value.length > 0) &&
+                        <thead ref={th => this.thead = th}>
+                            <tr className="bg-light">
+                                <th></th>
+                                {
+                                    this.state.columns!.map((c, i) => <th key={i} {...c.headerHtmlAttributes}>
+                                        {c.header === undefined && c.property ? elementPr.addLambda(c.property).member!.niceName : c.header}
+                                    </th>)
+                                }
+                            </tr>
+                        </thead>
                     }
-                    {
-                        this.state.createAsLink && this.state.create && !readOnly &&
-                        <tr>
-                            <td colSpan={1 + this.state.columns!.length}>
-                                {typeof this.state.createAsLink == "function" ? this.state.createAsLink(this) :
-                                    <a href="#" title={EntityControlMessage.Create.niceToString()}
-                                        className="sf-line-button sf-create"
-                                        onClick={this.handleCreateClick}>
-                                        <span className="fa fa-plus sf-create" />&nbsp;{EntityControlMessage.Create.niceToString()}
-                                    </a>}
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>);
+                    <tbody>
+                        {
+                            mlistItemContext(ctx).map((mlec, i) =>
+                                (<EntityTableRow key={i}
+                                    index={i}
+                                    onRowHtmlAttributes={this.props.onRowHtmlAttributes}
+                                    fetchRowState={this.props.fetchRowState}
+                                    onRemove={this.canRemove(mlec.value) && !readOnly ? e => this.handleRemoveElementClick(e, i) : undefined}
+                                    draggable={this.canMove(mlec.value) && !readOnly ? this.getDragConfig(i, "v") : undefined}
+                                    columns={this.state.columns!}
+                                    ctx={mlec} />))
+                        }
+                        {
+                            this.state.createAsLink && this.state.create && !readOnly &&
+                            <tr>
+                                <td colSpan={1 + this.state.columns!.length}>
+                                    {typeof this.state.createAsLink == "function" ? this.state.createAsLink(this) :
+                                        <a href="#" title={EntityControlMessage.Create.niceToString()}
+                                            className="sf-line-button sf-create"
+                                            onClick={this.handleCreateClick}>
+                                            <FontAwesomeIcon icon="plus" className="sf-create" />&nbsp;{EntityControlMessage.Create.niceToString()}
+                                        </a>}
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>);
     }
 }
 
@@ -189,7 +214,7 @@ export class EntityTableRow extends React.Component<EntityTableRowProps, { rowSt
                         {this.props.onRemove && <a href="#" className={classes("sf-line-button", "sf-remove")}
                             onClick={this.props.onRemove}
                             title={EntityControlMessage.Remove.niceToString()}>
-                            <span className="fa fa-remove"/>
+                            <FontAwesomeIcon icon="times" />
                         </a>}
                         &nbsp;
                         {drag && <a href="#" className={classes("sf-line-button", "sf-move")}
@@ -197,7 +222,7 @@ export class EntityTableRow extends React.Component<EntityTableRowProps, { rowSt
                             onDragStart={drag.onDragStart}
                             onDragEnd={drag.onDragEnd}
                             title={EntityControlMessage.Move.niceToString()}>
-                            <span className="fa fa-bars"/>
+                            <FontAwesomeIcon icon="bars" />
                         </a>}
                     </div>
                 </td>
@@ -219,8 +244,9 @@ export class EntityTableRow extends React.Component<EntityTableRowProps, { rowSt
             throw new Error("Column has no property and no template");
 
         if (typeof col.property == "string")
-            return DynamicComponent.getAppropiateComponent(this.props.ctx.subCtx(col.property));
+            return DynamicComponent.getAppropiateComponent(this.props.ctx.subCtx(col.property)); /*string overload*/
         else
-            return DynamicComponent.getAppropiateComponent(this.props.ctx.subCtx(col.property));
+            return DynamicComponent.getAppropiateComponent(this.props.ctx.subCtx(col.property)); /*lambda overload*/
+
     }
 }

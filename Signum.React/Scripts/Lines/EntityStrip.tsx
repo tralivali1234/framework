@@ -1,28 +1,24 @@
 ﻿import * as React from 'react'
-import { classes, Dic } from '../Globals'
+import { classes } from '../Globals'
 import * as Navigator from '../Navigator'
-import * as Constructor from '../Constructor'
-import * as Finder from '../Finder'
-import { FindOptions } from '../FindOptions'
-import { TypeContext, StyleContext, StyleOptions, FormGroupStyle, mlistItemContext, EntityFrame } from '../TypeContext'
-import { PropertyRoute, PropertyRouteType, MemberInfo, getTypeInfo, getTypeInfos, TypeInfo, IsByAll, ReadonlyBinding, LambdaMemberType } from '../Reflection'
-import { LineBase, LineBaseProps, runTasks, } from '../Lines/LineBase'
+import { TypeContext, mlistItemContext } from '../TypeContext'
 import { FormGroup } from '../Lines/FormGroup'
-import { FormControlReadonly } from '../Lines/FormControlReadonly'
-import { ModifiableEntity, Lite, Entity, MList, MListElement, EntityControlMessage, JavascriptMessage, toLite, is, liteKey, getToString, isEntity, isLite } from '../Signum.Entities'
+import { ModifiableEntity, Lite, Entity, EntityControlMessage, toLite, is, liteKey, getToString, isEntity, isLite } from '../Signum.Entities'
 import { Typeahead } from '../Components'
 import { EntityListBase, EntityListBaseProps, DragConfig } from './EntityListBase'
-import { AutocompleteConfig } from './AutocompleteConfig'
+import { AutocompleteConfig } from './AutoCompleteConfig'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
 
 
 export interface EntityStripProps extends EntityListBaseProps {
     vertical?: boolean;
     iconStart?: boolean;
-    autoComplete?: AutocompleteConfig<any> | null;
+    autocomplete?: AutocompleteConfig<any> | null;
     onRenderItem?: (item: Lite<Entity> | ModifiableEntity) => React.ReactNode;
+    showType?: boolean;
     onItemHtmlAttributes?: (item: Lite<Entity> | ModifiableEntity) => React.HTMLAttributes<HTMLSpanElement | HTMLAnchorElement>;
-    extraButtons?: () => (React.ReactElement<any> | null | undefined | false)[];
+    extraButtons?: (es: EntityStrip) => React.ReactNode;
 }
 
 export class EntityStrip extends EntityListBase<EntityStripProps, EntityStripProps> {
@@ -32,14 +28,14 @@ export class EntityStrip extends EntityListBase<EntityStripProps, EntityStripPro
     }
 
     componentWillUnmount() {
-        this.state.autoComplete && this.state.autoComplete.abort();
+        this.state.autocomplete && this.state.autocomplete.abort();
     }
 
     overrideProps(state: EntityStripProps, overridenProps: EntityStripProps) {
         super.overrideProps(state, overridenProps);
-        if (state.autoComplete === undefined) {
+        if (state.autocomplete === undefined) {
             const type = state.type!;
-            state.autoComplete = Navigator.getAutoComplete(type, state.findOptions);
+            state.autocomplete = Navigator.getAutoComplete(type, state.findOptions, state.showType);
         }
     }
     renderInternal() {
@@ -59,7 +55,7 @@ export class EntityStrip extends EntityListBase<EntityStripProps, EntityStripPro
                                 (<EntityStripElement key={i}
                                     ctx={mlec}
                                     iconStart={s.iconStart}
-                                    autoComplete={s.autoComplete}
+                                    autoComplete={s.autocomplete}
                                     onRenderItem={s.onRenderItem}
                                     drag={this.canMove(mlec.value) && !readOnly ? this.getDragConfig(i, this.props.vertical ? "v" : "h") : undefined}
                                     onItemHtmlAttributes={s.onItemHtmlAttributes}
@@ -72,9 +68,7 @@ export class EntityStrip extends EntityListBase<EntityStripProps, EntityStripPro
                             <span>
                                 {this.renderCreateButton(false)}
                                 {this.renderFindButton(false)}
-                                {this.props.extraButtons && this.props.extraButtons().map((btn, i) => {
-                                    return btn && React.cloneElement(btn, { key: i });
-                                })}
+                                {this.props.extraButtons && this.props.extraButtons(this)}
                             </span>
                         </li>
                     </ul>
@@ -84,8 +78,11 @@ export class EntityStrip extends EntityListBase<EntityStripProps, EntityStripPro
 
     }
 
-    handleOnSelect = (lite: Lite<Entity>, event: React.SyntheticEvent<any>) => {
-        this.convert(lite)
+    handleOnSelect = (item: any, event: React.SyntheticEvent<any>) => {
+
+        var entity = this.state.autocomplete!.getEntityFromItem(item);
+
+        this.convert(entity)
             .then(e => this.addElement(e))
             .done();
         return "";
@@ -108,7 +105,7 @@ export class EntityStrip extends EntityListBase<EntityStripProps, EntityStripPro
             window.open(route);
         }
         else {
-            const pr = ctx.propertyRoute.add(a => a[0]);
+            const pr = ctx.propertyRoute.addLambda(a => a[0]);
 
             const promise = this.props.onView ?
                 this.props.onView(entity, pr) :
@@ -140,7 +137,7 @@ export class EntityStrip extends EntityListBase<EntityStripProps, EntityStripPro
 
     renderAutoComplete() {
 
-        var ac = this.state.autoComplete;
+        var ac = this.state.autocomplete;
 
         if (!ac || this.state.ctx!.readOnly)
             return undefined;
@@ -177,7 +174,7 @@ export interface EntityStripElementProps {
 }
 
 export interface EntityStripElementState {
-    currentItem?: { entity: ModifiableEntity | Lite<Entity>, item?: any };
+    currentItem?: { entity: ModifiableEntity | Lite<Entity>, item?: unknown };
 }
 
 export class EntityStripElement extends React.Component<EntityStripElementProps, EntityStripElementState>
@@ -201,6 +198,20 @@ export class EntityStripElement extends React.Component<EntityStripElementProps,
             if (!this.state.currentItem || this.state.currentItem.entity !== newEntity) {
                 var ci = { entity: newEntity!, item: undefined }
                 this.setState({ currentItem: ci });
+                var fillItem = (newEntity: ModifiableEntity | Lite<Entity>) => {
+                    const autocomplete = this.props.autoComplete;
+                    autocomplete && autocomplete.getItemFromEntity(newEntity)
+                        .then(item => {
+                            if (autocomplete == this.props.autoComplete) {
+                                ci.item = item;
+                                this.forceUpdate();
+                            } else {
+                                fillItem(newEntity);
+                            }
+                        })
+                        .done();
+                };
+                fillItem(newEntity);
                 this.props.autoComplete.getItemFromEntity(newEntity)
                     .then(item => {
                         ci.item = item;
@@ -255,24 +266,24 @@ export class EntityStripElement extends React.Component<EntityStripElementProps,
 
     removeIcon() {
         return this.props.onRemove &&
-                        <span>
-                            <a className="sf-line-button sf-remove"
-                                onClick={this.props.onRemove}
-                                href="#"
-                                title={EntityControlMessage.Remove.niceToString()}>
-                                <span className="fa fa-remove"></span>
-                            </a>
-                        </span>
-                    }
+            <span>
+                <a className="sf-line-button sf-remove"
+                    onClick={this.props.onRemove}
+                    href="#"
+                    title={EntityControlMessage.Remove.niceToString()}>
+                    <FontAwesomeIcon icon="times" />
+                </a>
+            </span>
+    }
 
     dragIcon() {
         var drag = this.props.drag;
         return drag && <span className={classes("sf-line-button", "sf-move")}
-                        draggable={true}
-                        onDragStart={drag.onDragStart}
-                        onDragEnd={drag.onDragEnd}
-                        title={EntityControlMessage.Move.niceToString()}>
-                        <span className="fa fa-bars" />
+            draggable={true}
+            onDragStart={drag.onDragStart}
+            onDragEnd={drag.onDragEnd}
+            title={EntityControlMessage.Move.niceToString()}>
+            <FontAwesomeIcon icon="bars" />
         </span>;
     }
 }

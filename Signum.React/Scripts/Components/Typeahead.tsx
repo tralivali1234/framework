@@ -9,15 +9,15 @@ export interface TypeaheadProps {
     value?: string;
     onChange?: (newValue: string) => void;
     onBlur?: () => void;
-    getItems: (query: string) => Promise<any[]>;
+    getItems: (query: string) => Promise<unknown[]>;
     getItemsDelay?: number;
     minLength?: number;
     renderList?: (typeAhead: Typeahead) => React.ReactNode;
-    renderItem?: (item: any, query: string) => React.ReactNode;
-    onSelect?: (item: any, e: React.KeyboardEvent<any> | React.MouseEvent<any>) => string | null;
+    renderItem?: (item: unknown, query: string) => React.ReactNode;
+    onSelect?: (item: unknown, e: React.KeyboardEvent<any> | React.MouseEvent<any>) => string | null;
     scrollHeight?: number;
     inputAttrs?: React.InputHTMLAttributes<HTMLInputElement>;
-    itemAttrs?: (item: any) => React.LiHTMLAttributes<HTMLButtonElement>;
+    itemAttrs?: (item: unknown) => React.LiHTMLAttributes<HTMLButtonElement>;
     noResultsMessage?: string;
 }
 
@@ -27,7 +27,6 @@ export interface TypeaheadState {
     query?: string;
     selectedIndex?: number;
 }
-
 
 export class Typeahead extends React.Component<TypeaheadProps, TypeaheadState>
 {
@@ -62,8 +61,8 @@ export class Typeahead extends React.Component<TypeaheadProps, TypeaheadState>
         getItems: undefined as any,
         getItemsDelay: 200,
         minLength: 1,
-        renderItem: Typeahead.highlightedText,
-        onSelect: (elem, event) => elem,
+        renderItem: (item, query) => Typeahead.highlightedText(item as string, query),
+        onSelect: (elem, event) => (elem as string),
         scrollHeight: 0,
         noResultsMessage: " - No results -",
     };
@@ -80,11 +79,6 @@ export class Typeahead extends React.Component<TypeaheadProps, TypeaheadState>
 
             this.handle = setTimeout(() => this.populate(), this.props.getItemsDelay);
         }
-    }
-
-    componentWillUnmount() {
-        if (this.handle != undefined)
-            clearTimeout(this.handle);
     }
 
     populate() {
@@ -283,17 +277,23 @@ export class Typeahead extends React.Component<TypeaheadProps, TypeaheadState>
         this.toggleEvents(this.state.shown);
     }
 
+    componentWillUnmount() {
+        if (this.handle != undefined)
+            clearTimeout(this.handle);
+
+        this.toggleEvents(false);
+    }
+
     componentWillUpdate(nextProps: TypeaheadProps, nextState: TypeaheadState) {
         if (nextState.shown != this.state.shown)
             this.toggleEvents(nextState.shown);
     }
 
-    handleDocumentClick = (e: MouseEvent | /*Touch*/Event) => {
-        console.log(e);
-        if ((e as TouchEvent).which === 3)
+    handleDocumentClick = (e: MouseEvent | TouchEvent) => {
+        if ((e as MouseEvent).which === 3)
             return;
 
-        const container = ReactDOM.findDOMNode(this);
+        const container = ReactDOM.findDOMNode(this) as HTMLElement;
         if (container.contains(e.target as Node) &&
             container !== e.target) {
             return;
